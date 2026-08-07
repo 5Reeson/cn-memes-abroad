@@ -1,0 +1,12 @@
+node_modules/
+
+# Phase 0 credentials and generated test media. Never commit these.
+.phase0/
+
+# Local logs and environment files may contain account identifiers.
+*.log
+.env
+.env.*
+!.env.example
+
+.DS_Store
