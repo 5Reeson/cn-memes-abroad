@@ -7,6 +7,9 @@ import { LocalStickerSource } from './library/local-sticker-source.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
+import { EncryptedAuthStore } from './whatsapp/encrypted-auth-store.js'
+import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
+import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
 import type {
   CollectionView,
   ImportMode,
@@ -28,6 +31,7 @@ let mainWindow: BrowserWindow | null = null
 let manifestStore: ManifestStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
+let whatsappManager: WhatsAppManager
 const localSource = new LocalStickerSource()
 const packPreparer = new PackPreparer()
 let mutationQueue: Promise<unknown> = Promise.resolve()
@@ -244,6 +248,61 @@ function installIpcHandlers(): void {
       throw sanitizeError(error)
     }
   })
+
+  ipcMain.handle(IPC_CHANNELS.whatsappGetStatus, () => whatsappManager.getStatus())
+
+  ipcMain.handle(IPC_CHANNELS.whatsappConnect, async (_event, pairingPhone: unknown) => {
+    if (pairingPhone !== undefined && typeof pairingPhone !== 'string') {
+      throw new TypeError('Pairing phone must be a string')
+    }
+    try {
+      return await whatsappManager.connect(pairingPhone)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.whatsappDisconnect, async () => whatsappManager.disconnect())
+  ipcMain.handle(IPC_CHANNELS.whatsappLogout, async () => whatsappManager.logout())
+
+  ipcMain.handle(IPC_CHANNELS.whatsappListGroups, async () => {
+    try {
+      return await whatsappManager.listGroups()
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.whatsappSendPacks,
+    async (event: IpcMainInvokeEvent, targetId: unknown, packIds: unknown) => {
+      if (typeof targetId !== 'string' || !targetId) throw new TypeError('Invalid WhatsApp target')
+      if (packIds !== undefined) assertStringArray(packIds, 'packIds')
+      try {
+        const collection = await manifestStore.loadOrCreate()
+        const prepared = await packPreparer.prepare(collection, collectionDirectory, (progress) =>
+          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+        )
+        const requestedIds = packIds === undefined ? undefined : new Set(packIds)
+        if (requestedIds) {
+          const knownIds = new Set(prepared.map((pack) => pack.id))
+          if ([...requestedIds].some((id) => !knownIds.has(id))) {
+            throw new TypeError('Send request contains an unknown pack')
+          }
+        }
+        const selectedPacks = requestedIds
+          ? prepared.filter((pack) => requestedIds.has(pack.id))
+          : prepared
+        if (selectedPacks.length === 0) throw new Error('没有可发送的贴纸包')
+        const receipts = await whatsappManager.sendPacks(targetId, selectedPacks, (progress) =>
+          event.sender.send(IPC_CHANNELS.whatsappSendProgress, progress),
+        )
+        return { receipts }
+      } catch (error) {
+        throw sanitizeError(error)
+      }
+    },
+  )
 }
 
 async function installAssetProtocol(): Promise<void> {
@@ -290,6 +349,9 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault())
   mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -299,11 +361,22 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  collectionDirectory = join(app.getPath('userData'), 'library', 'collections', 'default')
+  const userDataDirectory = app.getPath('userData')
+  collectionDirectory = join(userDataDirectory, 'library', 'collections', 'default')
   manifestStore = new ManifestStore(collectionDirectory)
   importPreferences = new ImportPreferencesStore(
-    join(app.getPath('userData'), 'settings', 'import-preferences.json'),
+    join(userDataDirectory, 'settings', 'import-preferences.json'),
   )
+  whatsappManager = new WhatsAppManager(
+    new EncryptedAuthStore(join(userDataDirectory, 'whatsapp', 'session.enc')),
+    new SendReceiptStore(join(userDataDirectory, 'whatsapp', 'send-receipts.json')),
+    (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.whatsappStatus, status)
+      }
+    },
+  )
+  await whatsappManager.initialize()
   installIpcHandlers()
   await installAssetProtocol()
   createWindow()

@@ -6,6 +6,10 @@ import type {
   PackSettings,
   PreparePacksSummary,
   PrepareProgress,
+  SendPackProgress,
+  SendPacksSummary,
+  WhatsAppConnectionView,
+  WhatsAppTarget,
 } from './domain.js'
 
 export const IPC_CHANNELS = {
@@ -18,6 +22,14 @@ export const IPC_CHANNELS = {
   updatePackSettings: 'packs:update-settings',
   preparePacks: 'packs:prepare',
   prepareProgress: 'packs:prepare-progress',
+  whatsappGetStatus: 'whatsapp:get-status',
+  whatsappConnect: 'whatsapp:connect',
+  whatsappDisconnect: 'whatsapp:disconnect',
+  whatsappLogout: 'whatsapp:logout',
+  whatsappListGroups: 'whatsapp:list-groups',
+  whatsappSendPacks: 'whatsapp:send-packs',
+  whatsappStatus: 'whatsapp:status',
+  whatsappSendProgress: 'whatsapp:send-progress',
 } as const
 
 export interface StickerAppApi {
@@ -28,6 +40,14 @@ export interface StickerAppApi {
   setSelection(selectedIds: string[]): Promise<CollectionView>
   updatePackSettings(settings: PackSettings): Promise<CollectionView>
   preparePacks(): Promise<PreparePacksSummary>
+  getWhatsAppStatus(): Promise<WhatsAppConnectionView>
+  connectWhatsApp(pairingPhone?: string): Promise<WhatsAppConnectionView>
+  disconnectWhatsApp(): Promise<WhatsAppConnectionView>
+  logoutWhatsApp(): Promise<WhatsAppConnectionView>
+  listWhatsAppGroups(): Promise<WhatsAppTarget[]>
+  sendWhatsAppPacks(targetId: string, packIds?: string[]): Promise<SendPacksSummary>
+  onWhatsAppStatus(listener: (status: WhatsAppConnectionView) => void): () => void
+  onSendPackProgress(listener: (progress: SendPackProgress) => void): () => void
   onPrepareProgress(listener: (progress: PrepareProgress) => void): () => void
   onImportProgress(listener: (progress: ImportProgress) => void): () => void
 }

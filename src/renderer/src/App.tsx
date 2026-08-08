@@ -34,6 +34,7 @@ import type {
   PrepareProgress,
 } from '../../shared/domain.js'
 import { parsePackSizeInput, planStickerPacks } from '../../shared/pack-plan.js'
+import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
 
 type AssetView = CollectionView['assets'][number]
 
@@ -384,7 +385,16 @@ export function App() {
           <button className="nav-item is-active" type="button">
             <SquaresFour size={18} /> 贴纸库
           </button>
-          <button className="nav-item" type="button" disabled>
+          <button
+            className="nav-item"
+            type="button"
+            disabled={packPlan.packs.length === 0}
+            onClick={() =>
+              document
+                .getElementById('whatsapp-panel-title')
+                ?.scrollIntoView({ behavior: 'smooth' })
+            }
+          >
             <UploadSimple size={18} /> 发送到 WhatsApp
           </button>
           <button className="nav-item" type="button" disabled>
@@ -630,6 +640,14 @@ export function App() {
                   <p className="pack-empty-hint">选择至少 3 张同类型图片后即可生成贴纸包。</p>
                 )}
               </section>
+            )}
+            {packPlan.packs.length > 0 && (
+              <WhatsAppSendPanel
+                key={packPlanSignature}
+                expectedPackCount={packPlan.packs.length}
+                preparedPacks={preparedPacks}
+                onError={setError}
+              />
             )}
             <div className="selection-toolbar">
               <div>

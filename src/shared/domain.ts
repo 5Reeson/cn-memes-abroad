@@ -96,6 +96,53 @@ export interface PrepareProgress {
   packCount: number
 }
 
+export type WhatsAppConnectionPhase =
+  | 'disconnected'
+  | 'connecting'
+  | 'awaiting-qr'
+  | 'awaiting-pairing-code'
+  | 'connected'
+  | 'reconnecting'
+  | 'logged-out'
+  | 'error'
+
+export interface WhatsAppTarget {
+  id: string
+  name: string
+  kind: 'self' | 'group'
+  participantCount?: number
+}
+
+export interface WhatsAppConnectionView {
+  phase: WhatsAppConnectionPhase
+  hasSession: boolean
+  selfTarget?: WhatsAppTarget
+  qrDataUrl?: string
+  pairingCode?: string
+  message?: string
+}
+
+export interface SendPackProgress {
+  packId: string
+  packName: string
+  packIndex: number
+  packCount: number
+  status: 'uploading' | 'sent' | 'failed' | 'skipped'
+  message?: string
+}
+
+export interface SendPackReceipt {
+  packId: string
+  packName: string
+  status: 'sent' | 'failed' | 'skipped'
+  messageId?: string
+  error?: string
+}
+
+export interface SendPacksSummary {
+  receipts: SendPackReceipt[]
+}
+
 export interface StickerSource {
   kind: StickerSourceKind
   import(
