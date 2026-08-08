@@ -29,7 +29,11 @@ import type {
   ImportFailure,
   ImportMode,
   ImportProgress,
+  PackSettings,
+  PreparedPackView,
+  PrepareProgress,
 } from '../../shared/domain.js'
+import { parsePackSizeInput, planStickerPacks } from '../../shared/pack-plan.js'
 
 type AssetView = CollectionView['assets'][number]
 
@@ -157,6 +161,11 @@ export function App() {
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [failures, setFailures] = useState<ImportFailure[]>([])
   const [importNotice, setImportNotice] = useState<ImportNotice | null>(null)
+  const [packSettings, setPackSettings] = useState<PackSettings | null>(null)
+  const [packSizeInput, setPackSizeInput] = useState('30')
+  const [preparedPacks, setPreparedPacks] = useState<PreparedPackView[]>([])
+  const [preparing, setPreparing] = useState(false)
+  const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const importNoticeId = importNotice?.id
@@ -170,14 +179,26 @@ export function App() {
     }
 
     const unsubscribe = api.onImportProgress(setProgress)
+    const unsubscribePrepare = api.onPrepareProgress(setPrepareProgress)
     api
       .getCollection()
-      .then(setCollection)
+      .then((value) => {
+        setCollection(value)
+        setPackSettings({
+          title: value.title,
+          publisher: value.publisher,
+          packSize: value.packSize,
+        })
+        setPackSizeInput(String(value.packSize))
+      })
       .catch((reason: unknown) =>
         setError(reason instanceof Error ? reason.message : String(reason)),
       )
       .finally(() => setLoading(false))
-    return unsubscribe
+    return () => {
+      unsubscribe()
+      unsubscribePrepare()
+    }
   }, [])
 
   useEffect(() => {
@@ -199,6 +220,21 @@ export function App() {
   }, [importNoticeId])
 
   const selected = useMemo(() => new Set(collection?.selectedAssetIds ?? []), [collection])
+  const parsedPackSize = parsePackSizeInput(packSizeInput)
+  const packPlan = useMemo(
+    () =>
+      collection && packSettings && parsedPackSize !== null
+        ? planStickerPacks({ ...collection, packSize: parsedPackSize })
+        : { packs: [], warnings: [] },
+    [collection, packSettings, parsedPackSize],
+  )
+  const packPlanSignature = `${packSettings?.title}|${packSettings?.publisher}|${packPlan.packs
+    .map((pack) => pack.id)
+    .join('|')}`
+
+  useEffect(() => {
+    setPreparedPacks([])
+  }, [packPlanSignature])
 
   async function importAssets(mode: ImportMode) {
     const api = window.stickerApp
@@ -276,6 +312,63 @@ export function App() {
     }
   }
 
+  function validatePackSettings(): string | null {
+    if (!packSettings?.title.trim()) return '请输入贴纸包名称。'
+    if (packSettings.title.length > 128) return '贴纸包名称不能超过 128 个字符。'
+    if (!packSettings.publisher.trim()) return '请输入发布者名称。'
+    if (packSettings.publisher.length > 128) return '发布者名称不能超过 128 个字符。'
+    if (parsedPackSize === null) return '每包数量必须是 3–30 之间的整数。'
+    return null
+  }
+
+  async function persistPackSettings(): Promise<CollectionView | null> {
+    if (!packSettings || !collection) return null
+    const validationError = validatePackSettings()
+    if (validationError) {
+      setError(validationError)
+      if (parsedPackSize === null) setPackSizeInput(String(packSettings.packSize))
+      return null
+    }
+    const api = window.stickerApp
+    if (!api) {
+      setError('桌面桥接不可用，请重新打开应用。')
+      return null
+    }
+    try {
+      const updated = await api.updatePackSettings({ ...packSettings, packSize: parsedPackSize! })
+      setCollection(updated)
+      setPackSettings({
+        title: updated.title,
+        publisher: updated.publisher,
+        packSize: updated.packSize,
+      })
+      setPackSizeInput(String(updated.packSize))
+      setError(null)
+      return updated
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      return null
+    }
+  }
+
+  async function preparePacks() {
+    const api = window.stickerApp
+    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
+    if (!(await persistPackSettings())) return
+    setPreparing(true)
+    setPrepareProgress(null)
+    setError(null)
+    try {
+      const result = await api.preparePacks()
+      setPreparedPacks(result.packs)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setPreparing(false)
+      setPrepareProgress(null)
+    }
+  }
+
   const allSelected =
     Boolean(collection?.assets.length) && selected.size === collection?.assets.length
 
@@ -309,7 +402,7 @@ export function App() {
           <div>
             <p className="section-label">本地收藏</p>
             <h1>{collection?.title ?? '贴纸库'}</h1>
-            <p>导入、选择和调整顺序。后续会在这里预览 WhatsApp 分包。</p>
+            <p>导入、选择和调整顺序，然后预览并准备 WhatsApp 贴纸包。</p>
           </div>
           {Boolean(collection?.assets.length) && (
             <div className="header-actions">
@@ -397,6 +490,147 @@ export function App() {
               </div>
               <p>拖动图片右上角的手柄即可调整发送顺序。</p>
             </div>
+            {packSettings && (
+              <section className="pack-builder" aria-labelledby="pack-builder-title">
+                <div className="pack-builder-heading">
+                  <div>
+                    <p className="section-label">发送前准备</p>
+                    <h2 id="pack-builder-title">WhatsApp 分包预览</h2>
+                    <p className="pack-builder-description">
+                      静态与动态贴纸会自动分开；每包 3–30 张，并保持你的选择顺序。
+                    </p>
+                    <p className="pack-builder-policy">
+                      WhatsApp 官方要求：一个贴纸包必须全部为静态或全部为动态，不能混合。
+                    </p>
+                  </div>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      preparing || packPlan.packs.length === 0 || Boolean(validatePackSettings())
+                    }
+                    onClick={preparePacks}
+                  >
+                    <UploadSimple size={16} />
+                    {preparing
+                      ? `转换 ${prepareProgress?.completed ?? 0}/${prepareProgress?.total ?? selected.size}`
+                      : `准备 ${packPlan.packs.length} 个包`}
+                  </button>
+                </div>
+                {preparing && (
+                  <div className="prepare-progress" aria-live="polite">
+                    <div>
+                      <span>
+                        第 {prepareProgress?.packIndex ?? 1}/
+                        {prepareProgress?.packCount ?? packPlan.packs.length} 包
+                      </span>
+                      <span title={prepareProgress?.currentName}>
+                        {prepareProgress?.currentName ?? '正在初始化转换'}
+                      </span>
+                    </div>
+                    <div className="progress-line">
+                      <span
+                        style={{
+                          width: prepareProgress?.total
+                            ? `${(prepareProgress.completed / prepareProgress.total) * 100}%`
+                            : '2%',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="pack-settings">
+                  <label>
+                    <span>贴纸包名称</span>
+                    <input
+                      value={packSettings.title}
+                      maxLength={128}
+                      onChange={(event) =>
+                        setPackSettings({ ...packSettings, title: event.target.value })
+                      }
+                      onBlur={() => void persistPackSettings()}
+                    />
+                  </label>
+                  <label>
+                    <span>发布者</span>
+                    <input
+                      value={packSettings.publisher}
+                      maxLength={128}
+                      onChange={(event) =>
+                        setPackSettings({ ...packSettings, publisher: event.target.value })
+                      }
+                      onBlur={() => void persistPackSettings()}
+                    />
+                  </label>
+                  <label className="pack-size-field">
+                    <span>每包数量</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={2}
+                      value={packSizeInput}
+                      aria-invalid={parsedPackSize === null}
+                      onChange={(event) => {
+                        const digits = event.target.value.replace(/\D/g, '').slice(0, 2)
+                        setPackSizeInput(digits.replace(/^0+(?=\d)/, ''))
+                      }}
+                      onBlur={() => void persistPackSettings()}
+                    />
+                  </label>
+                </div>
+                {packPlan.warnings.length > 0 && (
+                  <div className="pack-warnings" role="status">
+                    {packPlan.warnings.map((warning) => (
+                      <p key={warning.mediaKind}>{warning.message}</p>
+                    ))}
+                  </div>
+                )}
+                {packPlan.packs.length > 0 ? (
+                  <div className="pack-preview-list">
+                    {packPlan.packs.map((pack, index) => {
+                      const prepared = preparedPacks.find((item) => item.id === pack.id)
+                      return (
+                        <article className="pack-preview-card" key={pack.id}>
+                          <div className="pack-thumbnails" aria-hidden="true">
+                            {pack.assetIds.slice(0, 4).map((assetId) => {
+                              const asset = collection.assets.find((item) => item.id === assetId)
+                              return asset ? (
+                                <img key={asset.id} src={asset.previewUrl} alt="" />
+                              ) : null
+                            })}
+                          </div>
+                          <div className="pack-preview-copy">
+                            <div>
+                              <strong>
+                                {packSettings.title}
+                                {packPlan.packs.length > 1 ? ` ${index + 1}` : ''}
+                              </strong>
+                              <span className={`pack-kind ${pack.mediaKind}`}>
+                                {pack.mediaKind === 'animated' ? '动态' : '静态'}
+                              </span>
+                            </div>
+                            <p>
+                              {pack.assetIds.length} 张 · 第 {index + 1} 包
+                            </p>
+                          </div>
+                          <span className={`pack-status ${prepared?.status ?? 'draft'}`}>
+                            {prepared?.status === 'prepared'
+                              ? '已准备'
+                              : prepared?.status === 'failed'
+                                ? '转换失败'
+                                : '待准备'}
+                          </span>
+                          {prepared?.error && <p className="pack-error">{prepared.error}</p>}
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="pack-empty-hint">选择至少 3 张同类型图片后即可生成贴纸包。</p>
+                )}
+              </section>
+            )}
             <div className="selection-toolbar">
               <div>
                 <button

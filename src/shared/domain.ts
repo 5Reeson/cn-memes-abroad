@@ -61,6 +61,41 @@ export interface ImportSummary {
   failures: ImportFailure[]
 }
 
+export interface PackSettings {
+  title: string
+  publisher: string
+  packSize: number
+}
+
+export interface PreparedStickerView {
+  assetId: string
+  sizeBytes: number
+  durationMs?: number
+}
+
+export interface PreparedPackView {
+  id: string
+  name: string
+  publisher: string
+  mediaKind: 'static' | 'animated'
+  stickers: PreparedStickerView[]
+  traySizeBytes: number
+  status: 'prepared' | 'failed'
+  error?: string
+}
+
+export interface PreparePacksSummary {
+  packs: PreparedPackView[]
+}
+
+export interface PrepareProgress {
+  completed: number
+  total: number
+  currentName: string
+  packIndex: number
+  packCount: number
+}
+
 export interface StickerSource {
   kind: StickerSourceKind
   import(

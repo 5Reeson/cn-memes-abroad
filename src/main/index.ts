@@ -6,10 +6,13 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent 
 import { LocalStickerSource } from './library/local-sticker-source.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
+import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
 import type {
   CollectionView,
   ImportMode,
   ImportSummary,
+  PackSettings,
+  PreparedPackView,
   StickerCollection,
 } from '../shared/domain.js'
 import { IPC_CHANNELS } from '../shared/ipc.js'
@@ -26,6 +29,7 @@ let manifestStore: ManifestStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 const localSource = new LocalStickerSource()
+const packPreparer = new PackPreparer()
 let mutationQueue: Promise<unknown> = Promise.resolve()
 
 function sanitizeError(error: unknown): Error {
@@ -60,6 +64,37 @@ function assertStringArray(value: unknown, label: string): asserts value is stri
     value.some((item) => typeof item !== 'string')
   ) {
     throw new TypeError(`${label} must be a string array`)
+  }
+}
+
+function assertPackSettings(value: unknown): asserts value is PackSettings {
+  if (!value || typeof value !== 'object') throw new TypeError('Invalid pack settings')
+  const settings = value as Partial<PackSettings>
+  if (
+    typeof settings.title !== 'string' ||
+    !settings.title.trim() ||
+    settings.title.length > 128 ||
+    typeof settings.publisher !== 'string' ||
+    !settings.publisher.trim() ||
+    settings.publisher.length > 128 ||
+    !Number.isInteger(settings.packSize) ||
+    settings.packSize! < 3 ||
+    settings.packSize! > 30
+  ) {
+    throw new TypeError('Pack settings are invalid')
+  }
+}
+
+function toPreparedPackView(pack: PreparedPack): PreparedPackView {
+  return {
+    id: pack.id,
+    name: pack.name,
+    publisher: pack.publisher,
+    mediaKind: pack.mediaKind,
+    stickers: pack.stickers.map(({ outputPath: _outputPath, ...sticker }) => sticker),
+    traySizeBytes: pack.traySizeBytes,
+    status: pack.status,
+    error: pack.error,
   }
 }
 
@@ -181,6 +216,33 @@ function installIpcHandlers(): void {
       const selectedAssetIds = collection.selectedAssetIds.filter((id) => !removed.has(id))
       return toCollectionView(await manifestStore.save({ ...collection, assets, selectedAssetIds }))
     })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.updatePackSettings, async (_event, settings: unknown) => {
+    assertPackSettings(settings)
+    return enqueueMutation(async () => {
+      const collection = await manifestStore.loadOrCreate()
+      return toCollectionView(
+        await manifestStore.save({
+          ...collection,
+          title: settings.title.trim(),
+          publisher: settings.publisher.trim(),
+          packSize: settings.packSize,
+        }),
+      )
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.preparePacks, async (event: IpcMainInvokeEvent) => {
+    try {
+      const collection = await manifestStore.loadOrCreate()
+      const packs = await packPreparer.prepare(collection, collectionDirectory, (progress) =>
+        event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+      )
+      return { packs: packs.map(toPreparedPackView) }
+    } catch (error) {
+      throw sanitizeError(error)
+    }
   })
 }
 

@@ -522,6 +522,222 @@ button:disabled {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+.pack-builder {
+  margin-bottom: 26px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: 0 10px 32px rgb(43 43 39 / 0.05);
+}
+
+.pack-builder-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.pack-builder-heading h2 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -0.025em;
+}
+
+.pack-builder-description {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pack-builder-policy {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+.pack-settings {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) 112px;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.prepare-progress {
+  margin-top: 16px;
+  padding: 11px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.prepare-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.prepare-progress > div:first-child span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-settings label {
+  display: grid;
+  gap: 7px;
+}
+
+.pack-settings label > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pack-settings input {
+  width: 100%;
+  height: 39px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  outline: none;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+}
+
+.pack-settings input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.pack-warnings {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border-radius: var(--radius-control);
+  color: #8a5a13;
+  background: color-mix(in srgb, #e4a63a 14%, var(--surface));
+}
+
+.pack-warnings p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.pack-preview-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pack-preview-card {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.pack-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.pack-thumbnails img {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  object-fit: contain;
+}
+
+.pack-preview-copy {
+  min-width: 0;
+}
+
+.pack-preview-copy > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pack-preview-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-preview-copy p,
+.pack-empty-hint {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pack-kind,
+.pack-status {
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pack-kind {
+  color: var(--text-muted);
+  background: var(--surface-hover);
+}
+
+.pack-kind.animated {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pack-status {
+  color: var(--text-faint);
+  background: var(--surface-muted);
+}
+
+.pack-status.prepared {
+  color: #267849;
+  background: color-mix(in srgb, #43a86b 14%, var(--surface));
+}
+
+.pack-status.failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.pack-error {
+  grid-column: 2 / -1;
+  margin: -6px 0 3px;
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.pack-empty-hint {
+  margin-top: 16px;
+  padding: 18px 0 2px;
+  border-top: 1px solid var(--line);
+}
 .collection-summary p {
   align-self: center;
   justify-self: end;
@@ -745,6 +961,16 @@ button:disabled {
   .source-grid,
   .failure-panel {
     grid-template-columns: 1fr;
+  }
+  .pack-builder-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .pack-settings {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pack-size-field {
+    grid-column: 1 / -1;
   }
   .sticker-grid {
     grid-template-columns: repeat(3, minmax(130px, 1fr));

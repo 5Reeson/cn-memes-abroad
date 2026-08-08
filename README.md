@@ -9,6 +9,7 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 - Phase 0：WhatsApp 原生 sticker pack 技术验证已通过。
 - Phase 1：Electron + React + TypeScript、安全 IPC、本地 manifest 原子读写。
 - Phase 2：本地图片/目录导入、复制、去重、预览、多选和拖拽排序。
+- Phase 3：静态/动态分包预览、合规 WebP 转换、tray icon、缓存和发送前校验。
 - 微信提取和桌面端 WhatsApp 发送仍在后续阶段。
 
 ## 本地开发
@@ -46,3 +47,6 @@ npm run phase0
 桌面应用默认把 collection 放在 Electron `userData` 目录下。导入的图片会复制到应用管理的 `library`，源文件不会被修改。manifest 使用临时文件、`fsync` 和同目录 rename 原子保存，并保留最近一个备份。
 
 WhatsApp 测试 session 位于仓库内的 `.phase0/`，已被 Git 忽略。不要提交 session、二维码、日志或用户素材。
+
+Phase 3 转换输出位于 collection 的 `converted/whatsapp` 和 `tray` 目录。它们是可重建的
+派生缓存；应用不会修改导入的 originals。
