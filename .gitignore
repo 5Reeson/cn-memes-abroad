@@ -1,4 +1,14 @@
 node_modules/
+out/
+release/
+dist/
+coverage/
+.playwright-cli/
+
+# Manual acceptance may place real user images here; only commit the synthetic fixture.
+tests/manual-fixtures/*
+!tests/manual-fixtures/README.md
+!tests/manual-fixtures/broken-image.webp
 
 # Phase 0 credentials and generated test media. Never commit these.
 .phase0/

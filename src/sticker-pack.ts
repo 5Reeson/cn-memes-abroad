@@ -1,11 +1,7 @@
 import { createHash } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
 
-import {
-  generateWAMessageFromContent,
-  proto,
-  type WASocket,
-} from '@whiskeysockets/baileys'
+import { generateWAMessageFromContent, proto, type WASocket } from '@whiskeysockets/baileys'
 import { zipSync } from 'fflate'
 import sharp from 'sharp'
 
@@ -56,7 +52,11 @@ function isAnimatedWebP(buffer: Buffer): boolean {
 
 async function assertStaticSticker(buffer: Buffer, fileName: string): Promise<void> {
   const metadata = await sharp(buffer).metadata()
-  if (metadata.format !== 'webp' || metadata.width !== STICKER_SIZE || metadata.height !== STICKER_SIZE) {
+  if (
+    metadata.format !== 'webp' ||
+    metadata.width !== STICKER_SIZE ||
+    metadata.height !== STICKER_SIZE
+  ) {
     throw new Error(`${fileName} must be a 512x512 WebP`)
   }
   if (isAnimatedWebP(buffer) || (metadata.pages ?? 1) !== 1) {
@@ -86,7 +86,10 @@ export async function prepareFixturePack(): Promise<PreparedStickerPack> {
 
   const coverSvg = stickerSvg(palette[0].background, palette[0].foreground, 'P0')
   const trayFileName = 'tray.png'
-  const trayPng = await sharp(coverSvg).resize(TRAY_SIZE, TRAY_SIZE).png({ compressionLevel: 9 }).toBuffer()
+  const trayPng = await sharp(coverSvg)
+    .resize(TRAY_SIZE, TRAY_SIZE)
+    .png({ compressionLevel: 9 })
+    .toBuffer()
   if (trayPng.length > MAX_TRAY_BYTES) {
     throw new Error(`Tray icon is ${trayPng.length} bytes; it must be <= 50 KB`)
   }

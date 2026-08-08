@@ -382,7 +382,6 @@ ID、文件名和 pack identifier 必须稳定，不能因为 UI 重开或重试
 
 ### Phase 1：最小 Electron 骨架
 
-- 创建全新仓库和开源 LICENSE。
 - Electron + React + TypeScript scaffold。
 - 配置最基本的 lint、format 和单元测试命令；不搭建复杂 CI。
 - 安全 preload/IPC；Renderer 禁止直接 Node 访问。

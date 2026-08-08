@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+release/
+.phase0/
+package-lock.json
+DEVELOPMENT_HANDOFF.md

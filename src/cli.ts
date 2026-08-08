@@ -55,7 +55,8 @@ function parseArgs(argv: string[]): Options {
       if (!options.target) throw new Error('--target requires self or a JID')
     } else if (arg === '--pairing-code') {
       options.pairingPhone = argv[++index]?.replace(/\D/g, '')
-      if (!options.pairingPhone) throw new Error('--pairing-code requires a country-code phone number')
+      if (!options.pairingPhone)
+        throw new Error('--pairing-code requires a country-code phone number')
     } else {
       throw new Error(`Unknown option: ${arg}\n\n${usage()}`)
     }
@@ -68,7 +69,9 @@ async function hardenSessionFiles(): Promise<void> {
   await chmod(sessionDirectory, 0o700)
   const entries = await readdir(sessionDirectory, { withFileTypes: true })
   await Promise.all(
-    entries.filter((entry) => entry.isFile()).map((entry) => chmod(resolve(sessionDirectory, entry.name), 0o600)),
+    entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => chmod(resolve(sessionDirectory, entry.name), 0o600)),
   )
 }
 
@@ -141,7 +144,9 @@ async function connectAndRun(options: Options): Promise<'done' | 'restart'> {
 
         if (connection === 'open') {
           await hardenSessionFiles()
-          console.log(`\n已登录；session 保存在 ${sessionDirectory}（目录 0700、文件 0600、已 gitignore）。`)
+          console.log(
+            `\n已登录；session 保存在 ${sessionDirectory}（目录 0700、文件 0600、已 gitignore）。`,
+          )
           const target = await selectTarget(socket, options.target)
           if (!target) throw new Error('No target selected')
           if (options.listOnly) {
@@ -155,7 +160,9 @@ async function connectAndRun(options: Options): Promise<'done' | 'restart'> {
             `正在上传一个原生 pack：${pack.stickers.length} 张 512x512 静态 WebP，ZIP ${pack.zip.length} bytes…`,
           )
           const messageId = await sendNativeStickerPack(socket, target, pack)
-          console.log(`已提交消息 ${messageId} 到 ${target}。请在手机端打开 pack，并点击添加到贴纸托盘。`)
+          console.log(
+            `已提交消息 ${messageId} 到 ${target}。请在手机端打开 pack，并点击添加到贴纸托盘。`,
+          )
           await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000))
           await socket.end(undefined)
           resolvePromise('done')
@@ -167,7 +174,9 @@ async function connectAndRun(options: Options): Promise<'done' | 'restart'> {
             await hardenSessionFiles()
             resolvePromise('restart')
           } else if (code === DisconnectReason.loggedOut) {
-            rejectPromise(new Error('WhatsApp 已注销此 session；请手动删除 .phase0/session 后重新登录。'))
+            rejectPromise(
+              new Error('WhatsApp 已注销此 session；请手动删除 .phase0/session 后重新登录。'),
+            )
           } else if (code !== undefined) {
             rejectPromise(new Error(`WhatsApp connection closed with status ${code}`))
           }
