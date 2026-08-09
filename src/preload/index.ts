@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type StickerAppApi } from '../shared/ipc.js'
 import type {
   ImportMode,
   ImportProgress,
+  LegacyWechatDownloadMode,
   PrepareProgress,
   SendPackProgress,
   WhatsAppConnectionView,
@@ -12,6 +13,10 @@ import type {
 const api: StickerAppApi = {
   getCollection: () => ipcRenderer.invoke(IPC_CHANNELS.getCollection),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),
+  discoverLegacyWechat: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDiscover),
+  importLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyImport, accountId, downloadMode),
+  cancelLegacyWechatImport: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyCancel),
   reorderAssets: (orderedIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.reorderAssets, orderedIds),
   removeAssets: (assetIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.removeAssets, assetIds),
@@ -50,6 +55,12 @@ const api: StickerAppApi = {
       listener(progress)
     ipcRenderer.on(IPC_CHANNELS.importProgress, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.importProgress, handler)
+  },
+  onLegacyWechatProgress: (listener: (progress: ImportProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: ImportProgress) =>
+      listener(progress)
+    ipcRenderer.on(IPC_CHANNELS.wechatLegacyProgress, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.wechatLegacyProgress, handler)
   },
 }
 

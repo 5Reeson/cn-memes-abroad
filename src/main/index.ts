@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent } from 'electron'
@@ -7,6 +7,7 @@ import { LocalStickerSource } from './library/local-sticker-source.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
+import { WechatLegacySource } from './sources/wechat-legacy/wechat-legacy-source.js'
 import { EncryptedAuthStore } from './whatsapp/encrypted-auth-store.js'
 import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
 import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
@@ -14,6 +15,7 @@ import type {
   CollectionView,
   ImportMode,
   ImportSummary,
+  LegacyWechatDownloadMode,
   PackSettings,
   PreparedPackView,
   StickerCollection,
@@ -33,8 +35,10 @@ let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
 const localSource = new LocalStickerSource()
+const legacyWechatSource = new WechatLegacySource()
 const packPreparer = new PackPreparer()
 let mutationQueue: Promise<unknown> = Promise.resolve()
+let legacyWechatImportController: AbortController | null = null
 
 function sanitizeError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error)
@@ -86,6 +90,12 @@ function assertPackSettings(value: unknown): asserts value is PackSettings {
     settings.packSize! > 30
   ) {
     throw new TypeError('Pack settings are invalid')
+  }
+}
+
+function assertLegacyWechatDownloadMode(value: unknown): asserts value is LegacyWechatDownloadMode {
+  if (value !== 'default' && value !== 'fast' && value !== 'safe') {
+    throw new TypeError('Invalid Legacy WeChat download mode')
   }
 }
 
@@ -176,6 +186,89 @@ function installIpcHandlers(): void {
         })
       } catch (error) {
         throw sanitizeError(error)
+      }
+    },
+  )
+
+  ipcMain.handle(IPC_CHANNELS.wechatLegacyDiscover, async () => {
+    try {
+      return await legacyWechatSource.discover()
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.wechatLegacyCancel, () => {
+    const controller = legacyWechatImportController
+    if (!controller || controller.signal.aborted) return false
+    controller.abort(new DOMException('Legacy WeChat import stopped', 'AbortError'))
+    return true
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechatLegacyImport,
+    async (
+      event: IpcMainInvokeEvent,
+      accountId: unknown,
+      downloadMode: unknown,
+    ): Promise<ImportSummary> => {
+      if (typeof accountId !== 'string' || !accountId) throw new TypeError('Invalid account ID')
+      assertLegacyWechatDownloadMode(downloadMode)
+      if (legacyWechatImportController) throw new Error('已有微信导入任务正在运行')
+      const controller = new AbortController()
+      legacyWechatImportController = controller
+      try {
+        return await enqueueMutation(async (): Promise<ImportSummary> => {
+          const collection = await manifestStore.loadOrCreate()
+          let uncommittedOriginalPaths: string[] = []
+          try {
+            controller.signal.throwIfAborted()
+            const result = await legacyWechatSource.import(
+              {
+                accountId,
+                collection,
+                collectionDirectory,
+                downloadMode,
+                signal: controller.signal,
+              },
+              (progress) => event.sender.send(IPC_CHANNELS.wechatLegacyProgress, progress),
+            )
+            uncommittedOriginalPaths = result.assets.map((asset) => asset.originalPath)
+            controller.signal.throwIfAborted()
+            if (legacyWechatImportController === controller) legacyWechatImportController = null
+            const next = await manifestStore.save({
+              ...collection,
+              assets: [...collection.assets, ...result.assets],
+              selectedAssetIds: [
+                ...collection.selectedAssetIds,
+                ...result.assets.map((asset) => asset.id),
+              ],
+            })
+            return {
+              canceled: false,
+              collection: toCollectionView(next),
+              imported: result.assets.length,
+              duplicates: result.duplicates.length,
+              failures: result.failures,
+            }
+          } catch (error) {
+            if (!controller.signal.aborted) throw error
+            await Promise.all(
+              uncommittedOriginalPaths.map((originalPath) => rm(originalPath, { force: true })),
+            )
+            return {
+              canceled: true,
+              collection: toCollectionView(collection),
+              imported: 0,
+              duplicates: 0,
+              failures: [],
+            }
+          }
+        })
+      } catch (error) {
+        throw sanitizeError(error)
+      } finally {
+        if (legacyWechatImportController === controller) legacyWechatImportController = null
       }
     },
   )

@@ -29,17 +29,20 @@ import type {
   ImportFailure,
   ImportMode,
   ImportProgress,
+  ImportSummary,
   PackSettings,
   PreparedPackView,
   PrepareProgress,
 } from '../../shared/domain.js'
 import { parsePackSizeInput, planStickerPacks } from '../../shared/pack-plan.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
+import { WechatLegacyPanel } from './WechatLegacyPanel.js'
 
 type AssetView = CollectionView['assets'][number]
 
 interface ImportNotice {
   id: number
+  kind: 'complete' | 'stopped'
   imported: number
   duplicates: number
   failed: number
@@ -102,7 +105,13 @@ function SortableSticker({
   )
 }
 
-function EmptyLibrary({ onImport }: { onImport: (mode: ImportMode) => void }) {
+function EmptyLibrary({
+  onImport,
+  onWechat,
+}: {
+  onImport: (mode: ImportMode) => void
+  onWechat: () => void
+}) {
   return (
     <section className="empty-library" aria-labelledby="empty-title">
       <div className="empty-heading">
@@ -132,13 +141,15 @@ function EmptyLibrary({ onImport }: { onImport: (mode: ImportMode) => void }) {
             </button>
           </div>
         </article>
-        <article className="source-panel disabled-source" aria-disabled="true">
+        <article className="source-panel legacy-source">
           <div>
             <WechatLogo size={24} weight="light" />
             <h3>从微信提取</h3>
-            <p>微信数据适配器会在后续阶段接入。本阶段不会读取微信目录。</p>
+            <p>支持微信 3.x 收藏贴纸。只读解析本机索引，不修改微信数据。</p>
           </div>
-          <span className="availability-label">尚未开放</span>
+          <button className="secondary-button" type="button" onClick={onWechat}>
+            <WechatLogo size={16} /> 检测旧版微信
+          </button>
         </article>
       </div>
     </section>
@@ -168,6 +179,7 @@ export function App() {
   const [preparing, setPreparing] = useState(false)
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [legacyPanelOpen, setLegacyPanelOpen] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const importNoticeId = importNotice?.id
 
@@ -245,23 +257,39 @@ export function App() {
     setError(null)
     try {
       const result = await api.importAssets(mode)
-      setCollection(result.collection)
-      setFailures(result.failures)
-      if (!result.canceled) {
-        setImportNotice({
-          id: Date.now(),
-          imported: result.imported,
-          duplicates: result.duplicates,
-          failed: result.failures.length,
-          dismissing: false,
-        })
-      }
+      applyImportSummary(result)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setImporting(false)
       setProgress(null)
     }
+  }
+
+  function applyImportSummary(result: ImportSummary) {
+    setCollection(result.collection)
+    setFailures(result.failures)
+    if (!result.canceled) {
+      setImportNotice({
+        id: Date.now(),
+        kind: 'complete',
+        imported: result.imported,
+        duplicates: result.duplicates,
+        failed: result.failures.length,
+        dismissing: false,
+      })
+    }
+  }
+
+  function showLegacyImportStopped() {
+    setImportNotice({
+      id: Date.now(),
+      kind: 'stopped',
+      imported: 0,
+      duplicates: 0,
+      failed: 0,
+      dismissing: false,
+    })
   }
 
   async function persistSelection(nextIds: string[]) {
@@ -419,6 +447,13 @@ export function App() {
               <button
                 className="secondary-button"
                 type="button"
+                onClick={() => setLegacyPanelOpen(true)}
+              >
+                <WechatLogo size={16} /> 微信收藏
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
                 onClick={() => importAssets('directory')}
                 disabled={importing}
               >
@@ -444,6 +479,14 @@ export function App() {
               <X size={16} />
             </button>
           </div>
+        )}
+
+        {legacyPanelOpen && (
+          <WechatLegacyPanel
+            onClose={() => setLegacyPanelOpen(false)}
+            onImported={applyImportSummary}
+            onStopped={showLegacyImportStopped}
+          />
         )}
 
         {importing && (
@@ -705,22 +748,30 @@ export function App() {
             </DndContext>
           </section>
         ) : (
-          <EmptyLibrary onImport={importAssets} />
+          <EmptyLibrary onImport={importAssets} onWechat={() => setLegacyPanelOpen(true)} />
         )}
       </main>
       {importNotice && (
         <aside
-          className={`import-notice${importNotice.dismissing ? ' is-dismissing' : ''}`}
+          className={`import-notice${importNotice.kind === 'stopped' ? ' is-stopped' : ''}${importNotice.dismissing ? ' is-dismissing' : ''}`}
           aria-live="polite"
-          aria-label="导入结果"
+          aria-label={importNotice.kind === 'stopped' ? '导入已停止' : '导入结果'}
         >
-          <CheckCircle size={20} weight="fill" />
+          {importNotice.kind === 'stopped' ? (
+            <Info size={20} weight="fill" />
+          ) : (
+            <CheckCircle size={20} weight="fill" />
+          )}
           <div>
-            <strong>导入完成</strong>
-            <p>
-              新增 {importNotice.imported} · 重复 {importNotice.duplicates} · 失败{' '}
-              {importNotice.failed}
-            </p>
+            <strong>{importNotice.kind === 'stopped' ? '下载已停止' : '导入完成'}</strong>
+            {importNotice.kind === 'stopped' ? (
+              <p>本次临时文件将自动清理，未完成内容不会加入素材库。</p>
+            ) : (
+              <p>
+                新增 {importNotice.imported} · 重复 {importNotice.duplicates} · 失败{' '}
+                {importNotice.failed}
+              </p>
+            )}
           </div>
           <button type="button" onClick={() => setImportNotice(null)} aria-label="关闭导入结果">
             <X size={16} />

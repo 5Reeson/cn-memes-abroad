@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -231,5 +231,39 @@ describe('LocalStickerSource', () => {
       durationMs: 200,
       mimeType: 'image/gif',
     })
+  })
+
+  it('removes originals created by an import that is canceled before manifest persistence', async () => {
+    const first = join(temporaryDirectory, 'first.png')
+    const second = join(temporaryDirectory, 'second.png')
+    const collectionDirectory = join(temporaryDirectory, 'collection')
+    await sharp({
+      create: { width: 12, height: 12, channels: 4, background: 'red' },
+    })
+      .png()
+      .toFile(first)
+    await sharp({
+      create: { width: 12, height: 12, channels: 4, background: 'blue' },
+    })
+      .png()
+      .toFile(second)
+    const controller = new AbortController()
+
+    const importing = new LocalStickerSource().import(
+      {
+        collection: collection(),
+        collectionDirectory,
+        inputs: [first, second],
+        signal: controller.signal,
+      },
+      (progress) => {
+        if (progress.completed === 1) {
+          controller.abort(new DOMException('Canceled by test', 'AbortError'))
+        }
+      },
+    )
+
+    await expect(importing).rejects.toMatchObject({ name: 'AbortError' })
+    expect(await readdir(join(collectionDirectory, 'originals'))).toEqual([])
   })
 })

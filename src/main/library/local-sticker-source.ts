@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 
 import sharp, { type Metadata } from 'sharp'
@@ -36,9 +36,17 @@ export interface LocalImportRequest {
   collectionDirectory: string
   /** Explicit files and/or directories, kept in the order supplied by the user. */
   inputs: readonly string[]
+  /** Optional cancellation for sources that perform long-running staged imports. */
+  signal?: AbortSignal
 }
 
 export type ImportProgressHandler = (progress: ImportProgress) => void | Promise<void>
+
+export interface ImportAttribution {
+  sourceKind: StickerSourceKind
+  sourceAccountId?: string
+  displayName?: (path: string, index: number) => string
+}
 
 interface DiscoveryResult {
   files: string[]
@@ -176,13 +184,15 @@ async function copyOriginal(
   originalsDirectory: string,
   fileName: string,
   expectedHash: string,
-): Promise<string> {
+): Promise<{ path: string; created: boolean }> {
   await mkdir(originalsDirectory, { recursive: true, mode: 0o700 })
   await chmod(originalsDirectory, 0o700)
 
   const destination = join(originalsDirectory, fileName)
+  let created = false
   try {
     await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 })
+    created = true
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     if (code !== 'EEXIST') throw error
@@ -201,7 +211,7 @@ async function copyOriginal(
   // copy before this path is persisted in the manifest.
   const destinationStat = await stat(destination)
   if (!destinationStat.isFile()) throw new Error('Imported original is not a file')
-  return destination
+  return { path: destination, created }
 }
 
 export class LocalStickerSource implements StickerSource {
@@ -215,12 +225,21 @@ export class LocalStickerSource implements StickerSource {
     request: LocalImportRequest,
     onProgress?: ImportProgressHandler,
   ): Promise<ImportResult> {
+    return this.importAttributed(request, { sourceKind: this.kind }, onProgress)
+  }
+
+  async importAttributed(
+    request: LocalImportRequest,
+    attribution: ImportAttribution,
+    onProgress?: ImportProgressHandler,
+  ): Promise<ImportResult> {
     const discovery = await discoverWithFailures(request.inputs)
     const originalsDirectory = join(resolve(request.collectionDirectory), 'originals')
     const assets: StickerAsset[] = []
     const duplicates: string[] = []
     const failures = [...discovery.failures]
     const knownHashes = new Set(request.collection.assets.map((asset) => asset.sha256))
+    const createdOriginalPaths: string[] = []
     let sourceOrder = nextOrder(request.collection.assets, 'sourceOrder')
     let userOrder = nextOrder(request.collection.assets, 'userOrder')
     const total = discovery.files.length + discovery.failures.length
@@ -240,46 +259,66 @@ export class LocalStickerSource implements StickerSource {
 
     await report()
 
-    for (const path of discovery.files) {
-      try {
-        const inspected = await inspectImage(path)
-        const hash = sha256(inspected.bytes)
-        if (knownHashes.has(hash)) {
-          duplicates.push(path)
-        } else {
-          const id = `asset-${hash.slice(0, 24)}`
-          const originalPath = await copyOriginal(
-            inspected.bytes,
-            originalsDirectory,
-            `${id}${inspected.extension}`,
-            hash,
-          )
-          const importedAt = new Date().toISOString()
-          assets.push({
-            id,
-            sourceKind: this.kind,
-            displayName: basename(path, extname(path)),
-            originalPath,
-            sha256: hash,
-            mimeType: inspected.mimeType,
-            animated: inspected.animated,
-            width: inspected.width,
-            height: inspected.height,
-            ...(inspected.durationMs === undefined ? {} : { durationMs: inspected.durationMs }),
-            importedAt,
-            sourceOrder,
-            userOrder,
-          })
-          knownHashes.add(hash)
-          sourceOrder += 1
-          userOrder += 1
+    try {
+      request.signal?.throwIfAborted()
+      for (const [inputIndex, path] of discovery.files.entries()) {
+        try {
+          request.signal?.throwIfAborted()
+          const inspected = await inspectImage(path)
+          request.signal?.throwIfAborted()
+          const hash = sha256(inspected.bytes)
+          if (knownHashes.has(hash)) {
+            duplicates.push(path)
+          } else {
+            const id = `asset-${hash.slice(0, 24)}`
+            const copied = await copyOriginal(
+              inspected.bytes,
+              originalsDirectory,
+              `${id}${inspected.extension}`,
+              hash,
+            )
+            if (copied.created) createdOriginalPaths.push(copied.path)
+            request.signal?.throwIfAborted()
+            const importedAt = new Date().toISOString()
+            assets.push({
+              id,
+              sourceKind: attribution.sourceKind,
+              ...(attribution.sourceAccountId === undefined
+                ? {}
+                : { sourceAccountId: attribution.sourceAccountId }),
+              displayName:
+                attribution.displayName?.(path, inputIndex) ?? basename(path, extname(path)),
+              originalPath: copied.path,
+              sha256: hash,
+              mimeType: inspected.mimeType,
+              animated: inspected.animated,
+              width: inspected.width,
+              height: inspected.height,
+              ...(inspected.durationMs === undefined ? {} : { durationMs: inspected.durationMs }),
+              importedAt,
+              sourceOrder,
+              userOrder,
+            })
+            knownHashes.add(hash)
+            sourceOrder += 1
+            userOrder += 1
+          }
+        } catch (error) {
+          if (request.signal?.aborted) throw error
+          failures.push({ path, reason: errorMessage(error) })
         }
-      } catch (error) {
-        failures.push({ path, reason: errorMessage(error) })
-      }
 
-      completed += 1
-      await report(path)
+        completed += 1
+        await report(path)
+      }
+      request.signal?.throwIfAborted()
+    } catch (error) {
+      if (request.signal?.aborted) {
+        await Promise.all(
+          createdOriginalPaths.map((originalPath) => rm(originalPath, { force: true })),
+        )
+      }
+      throw error
     }
 
     return { assets, duplicates, failures }

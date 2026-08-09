@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "phase0": "node --import tsx src/cli.ts",
     "phase0:check": "tsc --noEmit && node --import tsx src/cli.ts --check-only",
+    "phase6:inspect": "node --import tsx src/phase6-inspect.ts",
     "postinstall": "patch-package"
   },
   "engines": {

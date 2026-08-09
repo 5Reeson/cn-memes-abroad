@@ -42,6 +42,7 @@ export interface ImportProgress {
   imported: number
   duplicates: number
   failed: number
+  phase?: 'downloading' | 'importing'
   currentPath?: string
 }
 
@@ -60,6 +61,21 @@ export interface ImportSummary {
   duplicates: number
   failures: ImportFailure[]
 }
+
+export interface LegacyWechatAccountView {
+  id: string
+  label: string
+  stickerCount: number
+  archiveBytes: number
+}
+
+export interface LegacyWechatDiscoveryView {
+  rootFound: boolean
+  accounts: LegacyWechatAccountView[]
+  failures: string[]
+}
+
+export type LegacyWechatDownloadMode = 'default' | 'fast' | 'safe'
 
 export interface PackSettings {
   title: string

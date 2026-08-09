@@ -12,7 +12,8 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 - Phase 3：静态/动态分包预览、合规 WebP 转换、tray icon、缓存和发送前校验。
 - Phase 4：桌面端 WhatsApp QR/配对登录、加密 session、按需群聊选择和逐包发送。
 - Phase 5：arm64 DMG/ZIP 与 x64 Beta 实验构建已通过内部验证；当前产物尚未签名或公证。
-- 微信提取仍在后续阶段。
+- Phase 6：微信 3.x `fav.archive` Legacy Beta 适配器已进入真实账号手工验收。
+- 微信 4.x 提取仍在后续阶段。
 
 ## 本地开发
 
@@ -53,6 +54,14 @@ Phase 0 CLI 仍可独立运行：
 ```bash
 npm run phase0
 ```
+
+Phase 6 Legacy 只读诊断入口：
+
+```bash
+npm run phase6:inspect
+```
+
+该命令只输出脱敏账号、贴纸数量与解析失败摘要，不下载贴纸，也不修改微信或应用 library。
 
 ## 本地数据
 

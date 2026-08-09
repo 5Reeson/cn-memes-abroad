@@ -3,6 +3,8 @@ import type {
   ImportMode,
   ImportProgress,
   ImportSummary,
+  LegacyWechatDownloadMode,
+  LegacyWechatDiscoveryView,
   PackSettings,
   PreparePacksSummary,
   PrepareProgress,
@@ -16,6 +18,10 @@ export const IPC_CHANNELS = {
   getCollection: 'library:get-collection',
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
+  wechatLegacyDiscover: 'wechat-legacy:discover',
+  wechatLegacyImport: 'wechat-legacy:import',
+  wechatLegacyCancel: 'wechat-legacy:cancel',
+  wechatLegacyProgress: 'wechat-legacy:progress',
   reorderAssets: 'library:reorder-assets',
   removeAssets: 'library:remove-assets',
   setSelection: 'library:set-selection',
@@ -35,6 +41,12 @@ export const IPC_CHANNELS = {
 export interface StickerAppApi {
   getCollection(): Promise<CollectionView>
   importAssets(mode: ImportMode): Promise<ImportSummary>
+  discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
+  importLegacyWechat(
+    accountId: string,
+    downloadMode: LegacyWechatDownloadMode,
+  ): Promise<ImportSummary>
+  cancelLegacyWechatImport(): Promise<boolean>
   reorderAssets(orderedIds: string[]): Promise<CollectionView>
   removeAssets(assetIds: string[]): Promise<CollectionView>
   setSelection(selectedIds: string[]): Promise<CollectionView>
@@ -50,4 +62,5 @@ export interface StickerAppApi {
   onSendPackProgress(listener: (progress: SendPackProgress) => void): () => void
   onPrepareProgress(listener: (progress: PrepareProgress) => void): () => void
   onImportProgress(listener: (progress: ImportProgress) => void): () => void
+  onLegacyWechatProgress(listener: (progress: ImportProgress) => void): () => void
 }
