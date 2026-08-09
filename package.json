@@ -10,6 +10,8 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "package:mac": "npm run build && electron-builder --mac --dir",
+    "package:mac:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run build && electron-builder --mac dmg zip --arm64",
+    "package:mac:x64": "npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
@@ -60,14 +62,17 @@
     "appId": "com.cnmemesabroad.desktop",
     "productName": "CN Memes Abroad",
     "asar": true,
+    "artifactName": "${name}-${version}-${arch}.${ext}",
     "files": [
       "out/**/*",
       "package.json"
     ],
     "mac": {
       "category": "public.app-category.utilities",
+      "identity": null,
       "target": [
-        "dir"
+        "dmg",
+        "zip"
       ]
     }
   }

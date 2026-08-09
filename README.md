@@ -11,6 +11,7 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 - Phase 2：本地图片/目录导入、复制、去重、预览、多选和拖拽排序。
 - Phase 3：静态/动态分包预览、合规 WebP 转换、tray icon、缓存和发送前校验。
 - Phase 4：桌面端 WhatsApp QR/配对登录、加密 session、按需群聊选择和逐包发送。
+- Phase 5：arm64 DMG/ZIP 与 x64 Beta 实验构建已通过内部验证；当前产物尚未签名或公证。
 - 微信提取仍在后续阶段。
 
 ## 本地开发
@@ -36,6 +37,16 @@ npm run lint
 npm test
 npm run build
 ```
+
+实验 macOS 打包：
+
+```bash
+npm run package:mac:arm64
+npm run package:mac:x64
+```
+
+产物写入 `dist/`。x64 构建脚本会在 Apple Silicon 主机上临时切换 Sharp 的架构相关包，
+并在构建结束后恢复宿主机的 arm64 依赖。Phase 5 产物明确不签名、不公证，仅供内部验证。
 
 Phase 0 CLI 仍可独立运行：
 
