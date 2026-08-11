@@ -437,6 +437,103 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
+.wechat4-panel {
+  border-color: color-mix(in srgb, #07c160 32%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #07c160 5%, transparent), transparent 42%),
+    var(--surface-raised);
+}
+
+.wechat4-icon {
+  color: #079c4f;
+  border-color: color-mix(in srgb, #07c160 28%, var(--line));
+  background: color-mix(in srgb, #07c160 10%, var(--surface-muted));
+}
+
+.wechat4-badge {
+  display: inline-block;
+  margin-bottom: 5px;
+  color: #078d49;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wechat4-consent {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 0 56px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--danger-soft) 55%, var(--surface-raised));
+}
+
+.wechat4-consent-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--danger);
+}
+
+.wechat4-consent-title > div {
+  display: grid;
+  gap: 2px;
+}
+
+.wechat4-consent-title span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wechat4-consent ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wechat4-confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wechat4-confirm-check input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.wechat4-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 0 56px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wechat4-gate-awaiting-qr .progress-line > span {
+  animation: wechat4-waiting 1.8s ease-in-out infinite alternate;
+  background: #07c160;
+}
+
+@keyframes wechat4-waiting {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .wechat-legacy-heading {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

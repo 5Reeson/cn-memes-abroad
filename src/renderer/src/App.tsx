@@ -36,6 +36,7 @@ import type {
 } from '../../shared/domain.js'
 import { parsePackSizeInput, planStickerPacks } from '../../shared/pack-plan.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
+import { Wechat4Panel } from './Wechat4Panel.js'
 import { WechatLegacyPanel } from './WechatLegacyPanel.js'
 
 type AssetView = CollectionView['assets'][number]
@@ -107,10 +108,12 @@ function SortableSticker({
 
 function EmptyLibrary({
   onImport,
-  onWechat,
+  onWechat4,
+  onWechatLegacy,
 }: {
   onImport: (mode: ImportMode) => void
-  onWechat: () => void
+  onWechat4: () => void
+  onWechatLegacy: () => void
 }) {
   return (
     <section className="empty-library" aria-labelledby="empty-title">
@@ -145,11 +148,16 @@ function EmptyLibrary({
           <div>
             <WechatLogo size={24} weight="light" />
             <h3>从微信提取</h3>
-            <p>支持微信 3.x 收藏贴纸。只读解析本机索引，不修改微信数据。</p>
+            <p>支持微信 4.x 收藏表情；旧版微信仍可使用本机索引导入。</p>
           </div>
-          <button className="secondary-button" type="button" onClick={onWechat}>
-            <WechatLogo size={16} /> 检测旧版微信
-          </button>
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={onWechat4}>
+              <WechatLogo size={16} /> 微信 4.x
+            </button>
+            <button className="secondary-button" type="button" onClick={onWechatLegacy}>
+              检测旧版
+            </button>
+          </div>
         </article>
       </div>
     </section>
@@ -179,6 +187,7 @@ export function App() {
   const [preparing, setPreparing] = useState(false)
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [wechat4PanelOpen, setWechat4PanelOpen] = useState(false)
   const [legacyPanelOpen, setLegacyPanelOpen] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const importNoticeId = importNotice?.id
@@ -281,7 +290,7 @@ export function App() {
     }
   }
 
-  function showLegacyImportStopped() {
+  function showWechatImportStopped() {
     setImportNotice({
       id: Date.now(),
       kind: 'stopped',
@@ -445,11 +454,24 @@ export function App() {
           {Boolean(collection?.assets.length) && (
             <div className="header-actions">
               <button
-                className="secondary-button"
+                className="primary-button"
                 type="button"
-                onClick={() => setLegacyPanelOpen(true)}
+                onClick={() => {
+                  setLegacyPanelOpen(false)
+                  setWechat4PanelOpen(true)
+                }}
               >
                 <WechatLogo size={16} /> 微信收藏
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setWechat4PanelOpen(false)
+                  setLegacyPanelOpen(true)
+                }}
+              >
+                微信旧版
               </button>
               <button
                 className="secondary-button"
@@ -481,11 +503,19 @@ export function App() {
           </div>
         )}
 
+        {wechat4PanelOpen && (
+          <Wechat4Panel
+            onClose={() => setWechat4PanelOpen(false)}
+            onImported={applyImportSummary}
+            onStopped={showWechatImportStopped}
+          />
+        )}
+
         {legacyPanelOpen && (
           <WechatLegacyPanel
             onClose={() => setLegacyPanelOpen(false)}
             onImported={applyImportSummary}
-            onStopped={showLegacyImportStopped}
+            onStopped={showWechatImportStopped}
           />
         )}
 
@@ -748,7 +778,17 @@ export function App() {
             </DndContext>
           </section>
         ) : (
-          <EmptyLibrary onImport={importAssets} onWechat={() => setLegacyPanelOpen(true)} />
+          <EmptyLibrary
+            onImport={importAssets}
+            onWechat4={() => {
+              setLegacyPanelOpen(false)
+              setWechat4PanelOpen(true)
+            }}
+            onWechatLegacy={() => {
+              setWechat4PanelOpen(false)
+              setLegacyPanelOpen(true)
+            }}
+          />
         )}
       </main>
       {importNotice && (

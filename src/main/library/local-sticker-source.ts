@@ -171,6 +171,12 @@ async function inspectImage(path: string): Promise<InspectedImage> {
   }
 }
 
+/** Content-validates a source candidate without copying it into the library. */
+export async function validateLocalStickerFile(path: string): Promise<void> {
+  const inspected = await inspectImage(path)
+  inspected.bytes.fill(0)
+}
+
 function sha256(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex')
 }

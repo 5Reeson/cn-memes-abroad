@@ -8,6 +8,12 @@ import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
 import { WechatLegacySource } from './sources/wechat-legacy/wechat-legacy-source.js'
+import { Wechat4GateGAcquirer } from './sources/wechat4/gate-g-acquirer.js'
+import { resolveWechat4NativeArtifacts } from './sources/wechat4/native-runtime.js'
+import {
+  createProductWechat4StickerSource,
+  type Wechat4StickerSource,
+} from './sources/wechat4/wechat4-source.js'
 import { EncryptedAuthStore } from './whatsapp/encrypted-auth-store.js'
 import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
 import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
@@ -19,6 +25,8 @@ import type {
   PackSettings,
   PreparedPackView,
   StickerCollection,
+  Wechat4GateStatus,
+  Wechat4ImportDiscoveryView,
 } from '../shared/domain.js'
 import { IPC_CHANNELS } from '../shared/ipc.js'
 
@@ -34,11 +42,42 @@ let manifestStore: ManifestStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
+let wechat4Source: Wechat4StickerSource
 const localSource = new LocalStickerSource()
 const legacyWechatSource = new WechatLegacySource()
 const packPreparer = new PackPreparer()
 let mutationQueue: Promise<unknown> = Promise.resolve()
 let legacyWechatImportController: AbortController | null = null
+let wechat4ImportController: AbortController | null = null
+let wechat4ImportTask: Promise<ImportSummary> | null = null
+let allowQuitAfterWechat4Cleanup = false
+let resolveWechat4FavoritesReady: (() => void) | null = null
+
+function waitForWechat4FavoritesReady(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  if (resolveWechat4FavoritesReady) {
+    return Promise.reject(new Error('微信收藏表情确认已在等待中'))
+  }
+  return new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolveWechat4FavoritesReady = null
+      resolve()
+    }
+    const onAbort = () => {
+      resolveWechat4FavoritesReady = null
+      reject(signal?.reason ?? new DOMException('WeChat 4 import stopped', 'AbortError'))
+    }
+    resolveWechat4FavoritesReady = finish
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function sendWechat4GateStatus(status: Wechat4GateStatus): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.wechat4GateStatus, status)
+  }
+}
 
 function sanitizeError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error)
@@ -273,6 +312,140 @@ function installIpcHandlers(): void {
     },
   )
 
+  ipcMain.handle(IPC_CHANNELS.wechat4Discover, async (): Promise<Wechat4ImportDiscoveryView> => {
+    try {
+      const discovery = await wechat4Source.discover()
+      return {
+        rootFound: discovery.rootFound,
+        permissionDenied: discovery.permissionDenied,
+        accounts: discovery.accounts.map(
+          ({ id, label, databaseBytes, walPresent, shmPresent }) => ({
+            id,
+            label,
+            databaseBytes,
+            walPresent,
+            shmPresent,
+          }),
+        ),
+        failures: discovery.failures.map((failure) => failure.message),
+      }
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.wechat4Cancel, () => {
+    const controller = wechat4ImportController
+    if (!controller || controller.signal.aborted) return false
+    controller.abort(new DOMException('WeChat 4 import stopped', 'AbortError'))
+    return true
+  })
+
+  ipcMain.handle(IPC_CHANNELS.wechat4FavoritesReady, () => {
+    const resolveReady = resolveWechat4FavoritesReady
+    if (!resolveReady) return false
+    resolveReady()
+    return true
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechat4Import,
+    async (
+      event: IpcMainInvokeEvent,
+      accountId: unknown,
+      confirmed: unknown,
+    ): Promise<ImportSummary> => {
+      if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
+        throw new TypeError('Invalid WeChat 4 account ID')
+      }
+      if (confirmed !== true) throw new Error('必须先确认微信临时副本授权说明')
+      if (wechat4ImportController || legacyWechatImportController) {
+        throw new Error('已有微信导入任务正在运行')
+      }
+
+      const controller = new AbortController()
+      wechat4ImportController = controller
+      const task = (async (): Promise<ImportSummary> => {
+        sendWechat4GateStatus({ phase: 'preparing', message: '正在检查已验证的安全缓存' })
+        try {
+          return await enqueueMutation(async (): Promise<ImportSummary> => {
+            const collection = await manifestStore.loadOrCreate()
+            let uncommittedOriginalPaths: string[] = []
+            try {
+              controller.signal.throwIfAborted()
+              const result = await wechat4Source.import(
+                {
+                  accountId,
+                  collection,
+                  collectionDirectory,
+                  signal: controller.signal,
+                },
+                (progress) => {
+                  event.sender.send(IPC_CHANNELS.wechat4Progress, progress)
+                  if (progress.phase === 'downloading') {
+                    sendWechat4GateStatus({
+                      phase: 'resolving',
+                      message: '正在并发解析本地缓存与微信 CDN 素材',
+                    })
+                  } else if (progress.phase === 'importing') {
+                    sendWechat4GateStatus({
+                      phase: 'importing',
+                      message: '正在验证图片并写入本地素材库',
+                    })
+                  }
+                },
+              )
+              uncommittedOriginalPaths = result.assets.map((asset) => asset.originalPath)
+              controller.signal.throwIfAborted()
+              if (wechat4ImportController === controller) wechat4ImportController = null
+              const next = await manifestStore.save({
+                ...collection,
+                assets: [...collection.assets, ...result.assets],
+                selectedAssetIds: [
+                  ...collection.selectedAssetIds,
+                  ...result.assets.map((asset) => asset.id),
+                ],
+              })
+              sendWechat4GateStatus({ phase: 'complete', message: '微信 4.x 收藏表情导入完成' })
+              return {
+                canceled: false,
+                collection: toCollectionView(next),
+                imported: result.assets.length,
+                duplicates: result.duplicates.length,
+                failures: result.failures,
+              }
+            } catch (error) {
+              await Promise.allSettled(
+                uncommittedOriginalPaths.map((originalPath) => rm(originalPath, { force: true })),
+              )
+              if (!controller.signal.aborted) throw error
+              sendWechat4GateStatus({ phase: 'canceled', message: '微信 4.x 导入已取消并清理' })
+              return {
+                canceled: true,
+                collection: toCollectionView(collection),
+                imported: 0,
+                duplicates: 0,
+                failures: [],
+              }
+            }
+          })
+        } catch (error) {
+          sendWechat4GateStatus({ phase: 'failed', message: '微信 4.x 导入失败' })
+          throw sanitizeError(error)
+        } finally {
+          resolveWechat4FavoritesReady = null
+          if (wechat4ImportController === controller) wechat4ImportController = null
+        }
+      })()
+      wechat4ImportTask = task
+      try {
+        return await task
+      } finally {
+        if (wechat4ImportTask === task) wechat4ImportTask = null
+      }
+    },
+  )
+
   ipcMain.handle(IPC_CHANNELS.setSelection, async (_event, selectedIds: unknown) => {
     assertStringArray(selectedIds, 'selectedIds')
     return enqueueMutation(async () => {
@@ -455,6 +628,21 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   const userDataDirectory = app.getPath('userData')
+  const wechat4Artifacts = resolveWechat4NativeArtifacts({
+    packaged: app.isPackaged,
+    ...(app.isPackaged ? { resourcesPath: process.resourcesPath } : { projectRoot: process.cwd() }),
+  })
+  const wechat4Acquirer = new Wechat4GateGAcquirer({
+    artifacts: wechat4Artifacts,
+    candidateTimeoutMs: 10 * 60_000,
+    onStatus: sendWechat4GateStatus,
+    waitForFavoritesReady: waitForWechat4FavoritesReady,
+  })
+  wechat4Source = createProductWechat4StickerSource({
+    helper: { executable: wechat4Artifacts.helperPath, timeoutMs: 90_000 },
+    keyStoreDirectory: join(userDataDirectory, 'wechat4', 'keys'),
+    acquireCandidate: (request) => wechat4Acquirer.acquire(request),
+  })
   collectionDirectory = join(userDataDirectory, 'library', 'collections', 'default')
   manifestStore = new ManifestStore(collectionDirectory)
   importPreferences = new ImportPreferencesStore(
@@ -481,4 +669,18 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', (event) => {
+  if (allowQuitAfterWechat4Cleanup || !wechat4ImportTask) return
+  event.preventDefault()
+  wechat4ImportController?.abort(new DOMException('Application is quitting', 'AbortError'))
+  const task = wechat4ImportTask
+  void task
+    .catch(() => undefined)
+    .then(() => {
+      if (wechat4ImportTask === task) wechat4ImportTask = null
+      allowQuitAfterWechat4Cleanup = true
+      app.quit()
+    })
 })

@@ -75,6 +75,42 @@ export interface LegacyWechatDiscoveryView {
   failures: string[]
 }
 
+export interface Wechat4ImportAccountView {
+  id: string
+  label: string
+  databaseBytes: number
+  walPresent: boolean
+  shmPresent: boolean
+}
+
+export interface Wechat4ImportDiscoveryView {
+  rootFound: boolean
+  permissionDenied: boolean
+  accounts: Wechat4ImportAccountView[]
+  failures: string[]
+}
+
+export type Wechat4GatePhase =
+  | 'idle'
+  | 'preparing'
+  | 'quitting-original'
+  | 'copying'
+  | 'signing'
+  | 'awaiting-qr'
+  | 'awaiting-favorites'
+  | 'validating'
+  | 'resolving'
+  | 'importing'
+  | 'cleaning'
+  | 'complete'
+  | 'canceled'
+  | 'failed'
+
+export interface Wechat4GateStatus {
+  phase: Wechat4GatePhase
+  message: string
+}
+
 export type LegacyWechatDownloadMode = 'default' | 'fast' | 'safe'
 
 export interface PackSettings {

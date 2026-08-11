@@ -450,6 +450,8 @@ Milestone A 验收：
 
 ### Phase 7：微信 4.x 提取与接入
 
+> 实时状态：Gate A–G 全部通过。Gate G 第一次真实执行因 `CANDIDATE_TIMEOUT` 停在候选获取；同日只读复审证伪 Cause 2（hook 符号本来就是对的，导入方为 `Resources/wechat.dylib`）；第二次真实执行（state-marker dylib + 用户扫码）一次成功：真实 `emoticon.db` key 被捕获并通过 HMAC/schema/quick_check 三重验证，**`verified=true`**。2026-08-11 已完成数据侧与显式授权产品接线，并在打包 Electron 中完成单账号真实导入：Gate 等用户确认收藏缩略图已显示后再清理副本并创建新快照，928 条个人收藏中 884 张通过真实 CDN/AES-128-CBC/MD5/图片解码进入统一 library，素材库由 155 增至 1039；预览、顺序、静态/动态识别和 manifest 保存通过。下载已改为保持顺序的限流并发、确定性失败不重试和单条总预算。仍待真实多账号/失效 key，以及分包和 WhatsApp 发送全链路手工验收；它们不阻塞 Phase 7 单账号数据侧完成。最新状态见 [`PHASE7_REPORT.md`](PHASE7_REPORT.md) 与 [`PHASE7_HANDOFF.md`](PHASE7_HANDOFF.md)。下文为本阶段的原始规划，仍然有效。
+
 先完成最小 technical spike：
 
 - 探测 `xwechat_files` 和多账号 `emoticon.db`。
@@ -552,6 +554,20 @@ Phase 7 主流程通过后，可以建立一个最小静态官网作为项目的
 - 确认日志脱敏、清除 WhatsApp session、清除微信 key 可用。
 - 建立最简发布页和下载说明。
 - 自动更新不是首发条件，可以发布后再做。
+
+### Phase 11（发布后可选）：Potential refactoring — Swift to Rust
+
+TODO：在首个稳定版本发布、Phase 7 真实主流程已经验证并积累足够运行证据后，评估是否把
+WeChat 4 native helper 从 Swift 渐进迁移到 Rust。该重构不是 Phase 7 或首次发布的阻塞项，
+不得为了换语言延迟可用版本。
+
+- 保持现有 JSONL、匿名 FD candidate frame、错误码和安全/隐私边界兼容，优先替换实现而非重做协议。
+- 让 Swift 与 Rust 实现先共同运行同一套 synthetic SQLCipher golden tests，再逐步切换默认 helper。
+- 重点评估 secret buffer 清零、RAII 清理、arm64/x64 universal 构建、SQLCipher FFI、CommonCrypto
+  链接、签名/公证和 Electron 打包成本。
+- 极小的 macOS instrumentation dylib 可以继续使用独立 C 实现；除非 Rust `cdylib` 能明显降低
+  维护或安全成本，否则不要求把所有 native 代码统一为一种语言。
+- 迁移完成前保留可回退的 Swift helper；不得降低 HMAC、`sqlite_schema`、`quick_check` 或失败清理标准。
 
 ## 12. 最小必要测试
 

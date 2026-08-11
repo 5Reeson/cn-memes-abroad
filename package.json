@@ -9,9 +9,9 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
-    "package:mac": "npm run build && electron-builder --mac --dir",
-    "package:mac:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run build && electron-builder --mac dmg zip --arm64",
-    "package:mac:x64": "npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64",
+    "package:mac": "npm run phase7:native:build && npm run build && electron-builder --mac --dir",
+    "package:mac:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run phase7:native:build && npm run build && electron-builder --mac dmg zip --arm64",
+    "package:mac:x64": "npm run phase7:native:build && npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
@@ -20,6 +20,16 @@
     "phase0": "node --import tsx src/cli.ts",
     "phase0:check": "tsc --noEmit && node --import tsx src/cli.ts --check-only",
     "phase6:inspect": "node --import tsx src/phase6-inspect.ts",
+    "phase7:inspect": "node --import tsx src/phase7-inspect.ts",
+    "phase7:helper:build": "sh native/wechat4-helper/build.sh",
+    "phase7:native:build": "npm run phase7:helper:build && npm run phase7:instrumentation:build",
+    "phase7:helper:test": "node --import tsx scripts/test-wechat4-helper.ts",
+    "phase7:instrumentation:build": "sh native/wechat4-instrumentation/build.sh",
+    "phase7:instrumentation:test": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/test-wechat4-instrumentation.ts",
+    "phase7:load-gate:test": "npm run phase7:instrumentation:build && node --import tsx scripts/test-wechat4-load-gate.ts",
+    "phase7:gate-g": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/run-wechat4-gate-g.ts",
+    "phase7:lifecycle:test": "npm run phase7:helper:build && node --import tsx scripts/test-wechat4-lifecycle.ts",
+    "phase7:app-copy:test": "node --import tsx scripts/test-wechat4-app-copy.ts",
     "postinstall": "patch-package"
   },
   "engines": {
@@ -67,6 +77,16 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/wechat4-helper/build/universal/wechat4-helper",
+        "to": "wechat4-native/wechat4-helper"
+      },
+      {
+        "from": "native/wechat4-instrumentation/build/universal/libwechat4-synthetic-interposer.dylib",
+        "to": "wechat4-native/libwechat4-emoticon-interposer.dylib"
+      }
     ],
     "mac": {
       "category": "public.app-category.utilities",

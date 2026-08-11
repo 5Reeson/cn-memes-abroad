@@ -12,8 +12,13 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 - Phase 3：静态/动态分包预览、合规 WebP 转换、tray icon、缓存和发送前校验。
 - Phase 4：桌面端 WhatsApp QR/配对登录、加密 session、按需群聊选择和逐包发送。
 - Phase 5：arm64 DMG/ZIP 与 x64 Beta 实验构建已通过内部验证；当前产物尚未签名或公证。
-- Phase 6：微信 3.x `fav.archive` Legacy Beta 适配器已进入真实账号手工验收。
-- 微信 4.x 提取仍在后续阶段。
+- Phase 6：微信 3.x `fav.archive` Legacy Beta 适配器已通过真实账号手工验收。
+- Phase 7：微信 4.x Gate A–G 已通过，两次真实 Gate G 中第二次由用户扫码后取得候选并通过
+  HMAC/schema/quick_check（`verified=true`，key 随即清零）。数据侧 adapter 已完成 synthetic
+  验证：收藏/自定义表联表、本地缓存优先、CDN/AES 回退、Keychain-backed 缓存和统一
+  library；显式授权 UI、主进程 Gate G 获取器、失效 key 重取和 universal helper 打包也已接通并
+  通过 synthetic/目录包验证。真实产品导入、CDN/AES 与 WhatsApp 全链路仍待手工验收。详见
+  `PHASE7_REPORT.md`。
 
 ## 本地开发
 
@@ -62,6 +67,29 @@ npm run phase6:inspect
 ```
 
 该命令只输出脱敏账号、贴纸数量与解析失败摘要，不下载贴纸，也不修改微信或应用 library。
+
+Phase 7 WeChat 4 只读探测与 native helper 自建 fixture 验证：
+
+```bash
+npm run phase7:helper:build
+npm run phase7:helper:test
+npm run phase7:instrumentation:test
+npm run phase7:lifecycle:test
+npm run phase7:app-copy:test
+npm run phase7:inspect
+```
+
+`phase7:inspect` 只输出脱敏账号、数据库/sidecar 是否存在和 helper 自检结果，不读取表情记录，
+也不获取或输出真实 key。`phase7:instrumentation:test` 和 `phase7:lifecycle:test` 只使用项目
+自建 host、dylib 与加密库；`phase7:app-copy:test` 只复制并清理临时 App，不签名、不启动、
+不注入微信。真实 key acquisition 已有一次用户授权成功证据，但 synthetic 数据适配器测试不
+代表真实缓存/CDN 导入或完整产品 UI 已验收。
+
+`npm run phase7:load-gate:test` 是单独的真实 App 生命周期 dry run：它会正常终止并最终重启
+原微信，只对私有 session 内的临时副本做 ad-hoc 签名，加载一个仅向 fd 6 写固定 readiness
+标记、完全不 hook 函数的 probe，然后清理完整进程组、按临时副本 executable 路径验证的
+逸出进程和整个 session。该命令不读取数据库，也不获取 key，不应作为普通 synthetic 测试
+自动运行。
 
 ## 本地数据
 

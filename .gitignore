@@ -4,6 +4,8 @@ release/
 dist/
 coverage/
 .playwright-cli/
+native/wechat4-helper/build/
+native/wechat4-instrumentation/build/
 
 # Manual acceptance may place real user images here; only commit the synthetic fixture.
 tests/manual-fixtures/*
@@ -12,6 +14,7 @@ tests/manual-fixtures/*
 
 # Phase 0 credentials and generated test media. Never commit these.
 .phase0/
+.phase7/
 
 # Local logs and environment files may contain account identifiers.
 *.log
@@ -20,3 +23,6 @@ tests/manual-fixtures/*
 !.env.example
 
 .DS_Store
+
+# Local agent-session configuration; not part of the product.
+.claude/

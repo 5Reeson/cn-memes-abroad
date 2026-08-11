@@ -12,6 +12,8 @@ import type {
   SendPacksSummary,
   WhatsAppConnectionView,
   WhatsAppTarget,
+  Wechat4GateStatus,
+  Wechat4ImportDiscoveryView,
 } from './domain.js'
 
 export const IPC_CHANNELS = {
@@ -22,6 +24,12 @@ export const IPC_CHANNELS = {
   wechatLegacyImport: 'wechat-legacy:import',
   wechatLegacyCancel: 'wechat-legacy:cancel',
   wechatLegacyProgress: 'wechat-legacy:progress',
+  wechat4Discover: 'wechat4:discover',
+  wechat4Import: 'wechat4:import',
+  wechat4Cancel: 'wechat4:cancel',
+  wechat4FavoritesReady: 'wechat4:favorites-ready',
+  wechat4Progress: 'wechat4:progress',
+  wechat4GateStatus: 'wechat4:gate-status',
   reorderAssets: 'library:reorder-assets',
   removeAssets: 'library:remove-assets',
   setSelection: 'library:set-selection',
@@ -47,6 +55,10 @@ export interface StickerAppApi {
     downloadMode: LegacyWechatDownloadMode,
   ): Promise<ImportSummary>
   cancelLegacyWechatImport(): Promise<boolean>
+  discoverWechat4(): Promise<Wechat4ImportDiscoveryView>
+  importWechat4(accountId: string, confirmed: boolean): Promise<ImportSummary>
+  cancelWechat4Import(): Promise<boolean>
+  confirmWechat4FavoritesReady(): Promise<boolean>
   reorderAssets(orderedIds: string[]): Promise<CollectionView>
   removeAssets(assetIds: string[]): Promise<CollectionView>
   setSelection(selectedIds: string[]): Promise<CollectionView>
@@ -63,4 +75,6 @@ export interface StickerAppApi {
   onPrepareProgress(listener: (progress: PrepareProgress) => void): () => void
   onImportProgress(listener: (progress: ImportProgress) => void): () => void
   onLegacyWechatProgress(listener: (progress: ImportProgress) => void): () => void
+  onWechat4Progress(listener: (progress: ImportProgress) => void): () => void
+  onWechat4GateStatus(listener: (status: Wechat4GateStatus) => void): () => void
 }
