@@ -450,7 +450,7 @@ Milestone A 验收：
 
 ### Phase 7：微信 4.x 提取与接入
 
-> 实时状态：Gate A–G 全部通过。Gate G 第一次真实执行因 `CANDIDATE_TIMEOUT` 停在候选获取；同日只读复审证伪 Cause 2（hook 符号本来就是对的，导入方为 `Resources/wechat.dylib`）；第二次真实执行（state-marker dylib + 用户扫码）一次成功：真实 `emoticon.db` key 被捕获并通过 HMAC/schema/quick_check 三重验证，**`verified=true`**。2026-08-11 已完成数据侧与显式授权产品接线，并在打包 Electron 中完成单账号真实导入：Gate 等用户确认收藏缩略图已显示后再清理副本并创建新快照，928 条个人收藏中 884 张通过真实 CDN/AES-128-CBC/MD5/图片解码进入统一 library，素材库由 155 增至 1039；预览、顺序、静态/动态识别和 manifest 保存通过。下载已改为保持顺序的限流并发、确定性失败不重试和单条总预算。仍待真实多账号/失效 key，以及分包和 WhatsApp 发送全链路手工验收；它们不阻塞 Phase 7 单账号数据侧完成。最新状态见 [`PHASE7_REPORT.md`](PHASE7_REPORT.md) 与 [`PHASE7_HANDOFF.md`](PHASE7_HANDOFF.md)。下文为本阶段的原始规划，仍然有效。
+> 实时状态：**Phase 7 已完成**。Gate A–G 全部通过；2026-08-11 已完成数据侧、显式授权产品接线和 checksum-locked universal 预编译 SQLCipher。最新打包产品在删除本应用加密 candidate 缓存并清空 library 后，从 cache miss 完整走过临时微信、用户扫码、收藏 readiness、HMAC/schema/quick_check、Gate 后快照与清理，最终导入 928/928，识别 286 张动图并准备 72 个 pack；验证后账号隔离的安全缓存重新创建，临时进程无残留。微信来源素材的最小 WhatsApp pack 已通过产品发送并在手机端成功添加。第二真实账号也走独立扫码 Gate G：两个脱敏账号正确列出，加密缓存从 1 增至 2，跨账号去重后 library 从 928 增至 930 且大号素材保持完整。真实 stale-key 故障注入降级为发布后 Phase 11.1 的非阻塞可靠性 TODO，现有 synthetic 回归已覆盖正确控制流。最新证据见 [`PHASE7_REPORT.md`](PHASE7_REPORT.md) 与 [`PHASE7_HANDOFF.md`](PHASE7_HANDOFF.md)。下文为本阶段的原始规划，仍然有效。
 
 先完成最小 technical spike：
 
@@ -511,6 +511,19 @@ spike 可行后直接完成最小产品接入：
 
 默认选择钥匙串。已有 session 时，用户必须先登出才能切换存储方式，首版不实现复杂的双向迁移。界面需区分“断开连接”和“登出”：登出按钮必须二次确认，明确说明会删除内存及所选存储方式中的 WhatsApp session，下次需要重新扫码或配对；登出不能删除素材库。
 
+#### 动态贴纸转换韧性
+
+- TODO：转换阶段自动处理源动画中 `<8ms` 的帧，不能让单条素材阻塞整个 pack。优先把每帧
+  delay 规范化到至少 8ms，并从其他有余量的帧确定性回收增加的时长，尽量保持原总时长与节奏；
+  若无法同时满足单帧下限和 10 秒总时长，则合并/丢弃不可感知的短帧后再编码。
+- 只修改发送缓存中的派生 WebP，不修改 library 原素材；升级 conversion cache version，避免
+  复用旧转换产物。
+- 编码后重新读取 WebP metadata，强制验证每帧 `>=8ms`、总时长 `<=10s`、尺寸和 500KB 上限。
+  自动修复应产生非阻塞的汇总提示；只有规范化后仍不合规的单条素材才进入失败列表，其余 pack
+  继续准备。
+- 增加 `<8ms`、恰好 8ms、接近 10 秒上限、缓存失效和“一个异常素材不阻塞其余素材”的回归
+  测试。
+
 #### 关于与安全 FAQ
 
 应用内增加“关于与安全”页面或侧边栏 tab；Phase 9 官网必须提供对应的 FAQ 页面或区块，至少解释：
@@ -555,7 +568,21 @@ Phase 7 主流程通过后，可以建立一个最小静态官网作为项目的
 - 建立最简发布页和下载说明。
 - 自动更新不是首发条件，可以发布后再做。
 
-### Phase 11（发布后可选）：Potential refactoring — Swift to Rust
+### Phase 11（发布后可选）：可靠性回归与 native refactoring
+
+#### Phase 11.1：真实 stale-key 故障注入
+
+TODO（非阻塞）：增加一个只在本地测试构建启用、默认关闭且不能进入正式包的一次性故障注入。
+对用户在 UI 中选中的账号，从 safeStorage 正常加载候选后只在内存中翻转一个 key byte，再交给
+helper；不得读取、输出或持久化真实 key，也不得修改微信数据库。
+
+验收应确认 helper 返回 `KEY_VALIDATION_FAILED`，产品只清除所选账号的加密缓存、保留另一账号，
+随后进入显式授权 Gate G；用户重新扫码并验证成功后，缓存数量恢复，两个账号都仍能使用自己的
+候选。测试完成后移除或编译期禁用故障入口。直接破坏 `.keychain` 文件属于 safeStorage 损坏，
+不是 stale-key 路径，不得用它代替该验收。现有 synthetic 测试已覆盖这套控制流，因此本项不阻塞
+Phase 7、Phase 8 或首次发布。
+
+#### Phase 11.2：Potential refactoring — Swift to Rust
 
 TODO：在首个稳定版本发布、Phase 7 真实主流程已经验证并积累足够运行证据后，评估是否把
 WeChat 4 native helper 从 Swift 渐进迁移到 Rust。该重构不是 Phase 7 或首次发布的阻塞项，

@@ -145,11 +145,23 @@ WECHAT4_GATE_G_CANDIDATE_TIMEOUT_MS=600000 npm run phase7:gate-g
   以及旧 key 被 helper 拒绝后只清除所选账号并重新获取的回归。helper arm64/x86_64 的正确
   key、错误 key、目录顺序和 fd 隔离均通过。
 - 用户随后明确授权并完成真实产品 UI Gate G/导入：新确认步骤会等收藏缩略图显示后再清理副本，
-  再取新快照；928 条个人收藏中 884 张成功进入统一 library，素材库由 155 增至 1039，动态图
-  由 106 增至 371。真实 CDN、AES-128-CBC（IV=key、NoPadding）、MD5、图片解码、预览、
-  顺序和 manifest 保存均已验收；44 条失败或去重未新增，未输出单条内容。
+  再取新快照。第一次成功导入从 928 条中新增 884 张，确认了真实 CDN、AES-128-CBC
+  （IV=key、NoPadding）、MD5、图片解码、预览、顺序和 manifest 保存。
 - 首次真实产品尝试的 928 条全失败根因是 Gate 捕获 candidate 后过早杀掉副本并继续读取 Gate
   前旧快照；现已由 UI 明确确认 + Gate 后新快照修复。速度问题也已收敛为 6 个限流 worker、
   确定性 HTTP 失败不重试、瞬时失败最多两次、单条总预算 45 秒，且保持数据库顺序。
-- 下一步仅剩真实多账号/失效 key 手工验收，以及分包/WhatsApp 发送的产品全链路；它们不再
-  阻塞 Phase 7 单账号数据侧完成。
+- 换用 checksum-locked universal 预编译 SQLCipher 后，用户清空 library，并在 Electron/微信
+  均退出时授权删除唯一的本应用加密 candidate 缓存。最新打包产品由 cache miss 完整重跑：
+  临时微信、扫码、收藏 readiness、candidate 校验、Gate 后快照、导入和清理均通过；928/928
+  全部导入，识别 286 张动图并准备 72 个 pack。验证后重新创建 1 个账号隔离加密缓存；临时
+  微信/helper/instrumentation host 均无残留。未输出单条内容或任何敏感值。
+- 用户随后完成微信来源素材的最小 WhatsApp 全链路：产品内转换/准备、发送一个 pack、手机端
+  添加均成功。准备时发现一条 `<8ms` 动画帧被严格校验阻塞；Phase 8 已记录自动规范化帧时长、
+  重新校验并避免阻塞整包的 TODO。
+- 第二真实账号隔离也已验收：导入前 UI 显示两个脱敏账号且只有 1 个加密 candidate 缓存；选择
+  小号后没有误用大号缓存，而是进入独立扫码 Gate G。小号选中 12 张，经跨账号去重后 library
+  从 928 增至 930，动图从 286 增至 287，并生成 2 个 pack；缓存从 1 增至 2，大号素材未丢失，
+  临时微信/helper/instrumentation host 无残留。未记录账号标签或单条内容。
+- 真实失效 key 手工验收已明确延后为发布后 Phase 11.1 的非阻塞可靠性 TODO；现有 synthetic
+  回归已覆盖只清除所选账号、保留另一账号缓存并重新获取。Phase 7 数据侧、多账号隔离与最小
+  微信 → WhatsApp → 手机添加闭环均完成，可以结束本阶段。

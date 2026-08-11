@@ -1,17 +1,16 @@
 # Phase 7 report: WeChat 4.x read-only technical spike
 
-Date: 2026-08-10
+Date: 2026-08-10–2026-08-11
 
-Overall status: **Gate G PASSED — real `emoticon.db` key acquired and validated (`verified=true`)
-on the second real run; sanitized schema inspection and product integration are now unblocked**
+Overall status: **PHASE 7 COMPLETE — fresh cache-miss acquisition, 928/928 import, two-account
+isolation, pack preparation, WhatsApp delivery, and phone-side addition all passed**
 
 ## Scope and clean-room boundary
 
-This spike covers WeChat 4.x layout discovery, a controlled read-only database snapshot, a thin
-native helper protocol, strong SQLCipher key validation, arm64/x64 build evidence, and the
-session-scoped lifecycle foundation for a possible temporary-app acquisition PoC. It does not start
-Phase 8 and does not yet add Electron product UI or Keychain caching because a real key has not been
-acquired and verified.
+This work covers WeChat 4.x layout discovery, controlled read-only database snapshots, a thin native
+helper protocol, strong SQLCipher key validation, arm64/x64 build evidence, the session-scoped
+temporary-app acquisition lifecycle, Electron product UI, account-isolated Keychain-backed caching,
+and import into the shared library/preview/pack pipeline. It does not start Phase 8.
 
 No old research directory, historical session, log, database, key, URL, account identifier, or user
 sticker was copied into the repository. The real database was never opened for writing. Temporary
@@ -437,8 +436,48 @@ retried, and one record could spend the timeout budget independently on every UR
 adapter now uses six bounded workers while storing results by database order, does not retry
 deterministic HTTP failures, limits transient retries to two, applies a 45-second total record
 budget, and reports the resolving phase accurately. Synthetic regression covers out-of-order worker
-completion while preserving source order. This optimized build has not needed another real Gate G
-run because the successful run already established data compatibility.
+completion while preserving source order.
+
+### Fresh cache-miss product acceptance after optimization (2026-08-11)
+
+After replacing the vendored amalgamation with the checksum-locked universal prebuilt SQLCipher
+archive, the user cleared the imported library and explicitly authorized a fresh acquisition run.
+With Electron and WeChat stopped, the single app-owned encrypted candidate cache file was removed;
+no other credential or application data was changed. The packaged app then followed the complete
+cache-miss path: explicit impact confirmation, temporary WeChat launch, user QR login, favorites
+panel readiness confirmation, candidate validation, post-Gate snapshot, import, and cleanup.
+
+The optimized build imported **928 of 928** ordered favorites into the empty library, identified
+**286 animated** assets, selected all 928, and prepared **72** valid static/animated WhatsApp packs
+with a configured size of 13. The validated account-isolated encrypted candidate cache was recreated
+only after validation. At completion, the temporary WeChat, native helper, and instrumentation host
+had all exited; the Electron product remained healthy. No key, salt, URL, row, account identifier,
+or asset bytes entered logs, Git, or this report. This real run validates the prebuilt SQLCipher
+archive, optimized resolver, secure cache-miss acquisition, and shared import/preview/pack path
+together. WhatsApp delivery and phone-side addition remain a separate final manual acceptance.
+
+The user subsequently completed that minimum end-to-end acceptance: stickers originating from the
+fresh WeChat 4 import were converted and prepared, one pack was sent through the product's WhatsApp
+flow, and it was successfully added on the phone. This validates the source-agnostic path from
+WeChat import through WhatsApp delivery. During preparation, one source exposed a sub-8ms animation
+frame and was correctly blocked by the current strict validator; automatic, non-blocking frame-delay
+normalization is recorded as a Phase 8 conversion-resilience TODO.
+
+### Two-account isolation acceptance (2026-08-11)
+
+The user then prepared a second real WeChat account and explicitly authorized its Gate G/import
+flow. Before the run, the product listed two distinct masked accounts while the app-owned encrypted
+candidate directory contained exactly one cache file. Selecting the new account did not reuse the
+first account's candidate: it entered the impact-confirmation and QR-login cache-miss path, then
+validated the second database only after the user opened its favorites panel.
+
+The second account selected 12 favorites. Content de-duplication added two new assets without
+removing or corrupting the first account's 928-asset library; the aggregate library count became 930
+and the animated count became 287. The current selection produced two packs. After validation, the
+encrypted candidate cache count increased from one to two. The temporary WeChat, helper, and
+instrumentation host all exited, while Electron remained healthy. This verifies real account
+selection, candidate-cache isolation, cross-account library preservation, de-duplication, and
+success-path cleanup without recording either account identifier or any row/asset content.
 
 ## JSONL protocol and errors
 
@@ -562,13 +601,19 @@ key access. The real execution should remain a distinct, explicitly confirmed st
   frame acquired and validated; `verified=true`**.
 - arm64 build/runtime: **GO**.
 - x64 build and Rosetta fixture runtime: **GO for Beta build compatibility**.
-- Real non-invasive key acquisition: **GO (single successful real run; key zeroed after
-  validation, not persisted)**.
+- Real non-invasive key acquisition: **GO**, including a fresh cache-miss packaged run; transient
+  candidate buffers are cleared and only the validated safeStorage-encrypted cache is persisted.
 - Real `emoticon.db` HMAC/query validation: **GO**.
-- Phase 7 product integration: **GO on one real packaged single-account import**; the explicit-consent renderer flow is
-  wired to the main-process Gate G acquirer, account-isolated safeStorage caching and stale-key
-  reacquisition are covered, and the universal helper/interposer are present in a generated macOS
-  directory package. The real run added 884 validated WeChat 4 assets from 928 ordered records.
+- Phase 7 product integration: **GO on repeated real packaged single-account imports**; the latest
+  fresh cache-miss run imported 928/928 ordered records, identified 286 animated assets, and prepared
+  72 packs. The explicit-consent renderer flow is wired to the main-process Gate G acquirer,
+  account-isolated safeStorage caching and stale-key reacquisition are covered, and the universal
+  helper/interposer are present in the generated macOS directory package.
+- Real two-account selection and cache isolation: **GO**; the second account followed its own QR
+  cache-miss path, retained the first account's library, and increased the encrypted cache count from
+  one to two.
+- WeChat-to-WhatsApp minimum product path: **GO**; one prepared pack sourced from the fresh WeChat 4
+  import was sent and added successfully on the phone.
 - Overall Phase 7 spike: **GO**.
 
 The current automated application baseline is 22 test files / 87 tests. The additional native
@@ -581,7 +626,7 @@ and interposer are executable universal `arm64 + x86_64` files under
 Developer ID signing/notarization remains a release-stage task. The previously recorded copy-only
 smoke remains separate and was not run during the Gate G diagnosis.
 
-## Manual verification still required
+## Remaining non-blocking and release-stage checks
 
 Safe checks available now:
 
@@ -600,19 +645,22 @@ timeout remove the synthetic process and fixture session; and all temporary secr
 are cleared. The app-copy and sanitized real-layout checks are intentionally outside this command.
 
 The user chose option 1 in-conversation (2026-08-10): proceed with the bounded independent
-temporary-copy + ad-hoc signing + minimal instrumentation PoC. The second real run validated the
-real database (`verified=true`), so the remaining manual acceptance is:
+temporary-copy + ad-hoc signing + minimal instrumentation PoC. Phase 7 now has no blocking manual
+acceptance remaining. The following checks are explicitly deferred or belong to release hardening:
 
 - verify the installed WeChat/macOS version shown to the user;
-- verify normal quit/relaunch behavior and all authorization prompts (partially observed across the
-  two runs: SIGTERM quit, relaunch, and full cleanup succeeded; a displaced original-app session
-  re-logs in normally);
-- verify one or more real accounts without exposing IDs (account isolation and stale-key eviction
-  are covered with synthetic regression tests);
-- verify a stale/wrong real key is detected;
-- import personal favorites into the unified library (**verified for one real account: 884 added**);
-- inspect preview, duplicates, and ordering (**verified**); pack preparation and WhatsApp delivery
-  remain outside the data-side acceptance;
+- verify normal quit/relaunch behavior and all authorization prompts (**verified across the real
+  runs, including the explicit cache-miss confirmation and complete success-path cleanup**);
+- verify one or more real accounts without exposing IDs (**verified with two masked real accounts;
+  cache count increased from one to two and the first library remained intact**);
+- verify a stale/wrong real key through a one-shot, test-only in-memory fault injection (**synthetic
+  coverage already verifies selected-account eviction/reacquisition and preservation of the other
+  account; real fault injection is deferred as a non-blocking Phase 11.1 TODO**);
+- import personal favorites into the unified library (**verified for one real account: 928/928 on
+  the latest clean run**);
+- inspect preview, duplicates, ordering, and pack preparation (**verified; 286 animated assets and
+  72 packs on the latest run**); minimum WhatsApp delivery and phone-side addition are also
+  **verified**;
 - verify the temporary copy, injected library, key buffers, DB snapshot, and complete process group
   are removed after success, failure, cancellation, and timeout (success-path cleanup verified in
   the real run; failure/cancellation/timeout paths verified on synthetic fixtures only).
