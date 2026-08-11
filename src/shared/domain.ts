@@ -1,5 +1,6 @@
 export const CURRENT_SCHEMA_VERSION = 2 as const
-export const CURRENT_EXPORT_TASK_SCHEMA_VERSION = 1 as const
+export const CURRENT_EXPORT_TASK_SCHEMA_VERSION = 2 as const
+export const CURRENT_PREPARED_SNAPSHOT_SCHEMA_VERSION = 1 as const
 
 export type StickerSourceKind = 'local' | 'wechat4' | 'wechat-legacy'
 
@@ -64,6 +65,7 @@ export interface WhatsAppTransferSettings {
 }
 
 export interface LocalFolderTransferSettings {
+  batchName: string
   format: 'original' | 'converted-webp'
   naming: 'original' | 'sequence'
   itemsPerFolder: number
@@ -112,24 +114,93 @@ export type PreparedSnapshotDestination = 'whatsapp' | 'local-folder'
 
 export interface PreparedSnapshotGroup {
   id: string
-  mediaKind: 'static' | 'animated'
+  name: string
+  mediaKind: 'static' | 'animated' | 'mixed'
   assetIds: string[]
-  payloadChecksums: string[]
+  payloads: PreparedSnapshotPayload[]
 }
 
-/** Contract frozen in Phase 8 stage 1; storage is implemented in stage 3. */
+export interface PreparedSnapshotPayload {
+  id: string
+  role: 'sticker' | 'tray'
+  assetId?: string
+  fileName: string
+  relativePath: string
+  sha256: string
+  sizeBytes: number
+  mimeType: string
+  animated: boolean
+  durationMs?: number
+}
+
+export type PreparedSnapshotConfiguration =
+  | ({ kind: 'whatsapp' } & WhatsAppTransferSettings)
+  | ({ kind: 'local-folder' } & LocalFolderTransferSettings)
+
 export interface PreparedSnapshotManifest {
-  schemaVersion: 1
+  schemaVersion: typeof CURRENT_PREPARED_SNAPSHOT_SCHEMA_VERSION
   id: string
   name: string
   publisher?: string
   destination: PreparedSnapshotDestination
+  configuration: PreparedSnapshotConfiguration
   orderedAssetIds: string[]
   groups: PreparedSnapshotGroup[]
   conversionVersion: string
   contentFingerprint: string
   createdAt: string
 }
+
+export interface PreparedExportItemView {
+  id: string
+  assetId: string
+  previewUrl: string
+  fileName: string
+  sizeBytes: number
+  animated: boolean
+  durationMs?: number
+}
+
+export interface PreparedExportGroupView {
+  id: string
+  name: string
+  mediaKind: 'static' | 'animated' | 'mixed'
+  assetIds: string[]
+  items: PreparedExportItemView[]
+  status: 'prepared' | 'failed'
+  error?: string
+}
+
+export interface PrepareExportSummary {
+  fingerprint: string
+  destination: PreparedSnapshotDestination
+  name: string
+  publisher?: string
+  groups: PreparedExportGroupView[]
+  warnings: string[]
+}
+
+export interface PreparedSnapshotSummary {
+  id: string
+  name: string
+  publisher?: string
+  destination: PreparedSnapshotDestination
+  assetCount: number
+  groupCount: number
+  contentFingerprint: string
+  createdAt: string
+}
+
+export interface PreparedSnapshotView extends PreparedSnapshotSummary {
+  configuration: PreparedSnapshotConfiguration
+  orderedAssetIds: string[]
+  groups: PreparedExportGroupView[]
+  conversionVersion: string
+}
+
+export type SavePreparedSnapshotResult =
+  | { kind: 'saved'; snapshot: PreparedSnapshotView }
+  | { kind: 'duplicate'; snapshot: PreparedSnapshotView }
 
 export interface ImportFailure {
   path: string

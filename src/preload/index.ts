@@ -15,6 +15,15 @@ const api: StickerAppApi = {
   getCollection: () => ipcRenderer.invoke(IPC_CHANNELS.getCollection),
   getExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.getExportTask),
   saveExportTask: (task) => ipcRenderer.invoke(IPC_CHANNELS.saveExportTask, task),
+  resetExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.resetExportTask),
+  chooseExportDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseExportDirectory),
+  prepareExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.prepareExportTask),
+  savePreparedSnapshot: (forceDuplicate?: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.savePreparedSnapshot, forceDuplicate),
+  listPreparedSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.listPreparedSnapshots),
+  getPreparedSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.getPreparedSnapshot, id),
+  deletePreparedSnapshot: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deletePreparedSnapshot, id),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),
   discoverLegacyWechat: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDiscover),
   importLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>

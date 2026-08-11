@@ -15,6 +15,7 @@ import {
   CURRENT_EXPORT_TASK_SCHEMA_VERSION,
   type ExportTask,
   type ExportTaskDraft,
+  type ExportTaskPreparedState,
 } from '../../shared/domain.js'
 
 const FILE_MODE = 0o600
@@ -61,12 +62,18 @@ export class ExportTaskStore {
   async load(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
     if (primary.kind === 'valid') return primary.task
+    if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
     if (isUnsupported(primary)) throw primary.error
 
     const backup = await this.tryRead(this.backupPath)
     if (backup.kind === 'valid') {
       await this.writeAtomically(this.path, serialize(backup.task))
       return backup.task
+    }
+    if (backup.kind === 'legacy') {
+      const migrated = migrateV1Task(backup.task)
+      await this.writeAtomically(this.path, serialize(migrated))
+      return migrated
     }
     if (isUnsupported(backup)) throw backup.error
     throw new ExportTaskReadError(
@@ -82,12 +89,18 @@ export class ExportTaskStore {
   async loadOrCreate(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
     if (primary.kind === 'valid') return primary.task
+    if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
     if (isUnsupported(primary)) throw primary.error
 
     const backup = await this.tryRead(this.backupPath)
     if (backup.kind === 'valid') {
       await this.writeAtomically(this.path, serialize(backup.task))
       return backup.task
+    }
+    if (backup.kind === 'legacy') {
+      const migrated = migrateV1Task(backup.task)
+      await this.writeAtomically(this.path, serialize(migrated))
+      return migrated
     }
     if (isUnsupported(backup)) throw backup.error
     if (primary.kind !== 'missing' || backup.kind !== 'missing') return this.load()
@@ -99,28 +112,73 @@ export class ExportTaskStore {
 
   async save(task: ExportTask): Promise<ExportTask> {
     assertExportTask(task)
-    const current = await this.tryRead(this.path)
-    if (isUnsupported(current)) throw current.error
+    const current = await this.loadOrCreate()
     const timestamp = this.now().toISOString()
     const candidate: ExportTask = {
       ...task,
       schemaVersion: CURRENT_EXPORT_TASK_SCHEMA_VERSION,
-      id: current.kind === 'valid' ? current.task.id : task.id,
-      createdAt: current.kind === 'valid' ? current.task.createdAt : task.createdAt,
+      id: current.id,
+      createdAt: current.createdAt,
       updatedAt: timestamp,
     }
     assertExportTask(candidate)
 
-    if (current.kind === 'valid') await this.copyAtomically(this.path, this.backupPath)
+    await this.copyAtomically(this.path, this.backupPath)
     await this.writeAtomically(this.path, serialize(candidate))
     return candidate
   }
 
   async saveDraft(draft: ExportTaskDraft): Promise<ExportTask> {
     const current = await this.loadOrCreate()
-    const candidate: ExportTask = { ...current, ...draft }
+    const candidate: ExportTask = {
+      ...current,
+      ...draft,
+      ...(preparationInputsChanged(current, draft) ? { prepared: undefined } : {}),
+    }
     assertExportTask(candidate)
     return this.save(candidate)
+  }
+
+  async reset(): Promise<ExportTask> {
+    await this.loadOrCreate()
+    const replacement = createDefaultExportTask(this.now(), this.createId())
+    await this.copyAtomically(this.path, this.backupPath)
+    await this.writeAtomically(this.path, serialize(replacement))
+    return replacement
+  }
+
+  async setPrepared(prepared: ExportTaskPreparedState): Promise<ExportTask> {
+    const current = await this.loadOrCreate()
+    return this.save({ ...current, prepared })
+  }
+
+  async attachSnapshot(fingerprint: string, snapshotId: string): Promise<ExportTask> {
+    const current = await this.loadOrCreate()
+    if (!current.prepared || current.prepared.fingerprint !== fingerprint) {
+      throw new ExportTaskReadError('Prepared snapshot no longer matches the current export task')
+    }
+    return this.save({
+      ...current,
+      prepared: { ...current.prepared, snapshotId },
+    })
+  }
+
+  async reconcileAssets(knownAssetIds: ReadonlySet<string>): Promise<ExportTask> {
+    const current = await this.loadOrCreate()
+    const selectedAssetIds = current.selectedAssetIds.filter((id) => knownAssetIds.has(id))
+    const orderedAssetIds = current.orderedAssetIds.filter((id) => knownAssetIds.has(id))
+    if (
+      selectedAssetIds.length === current.selectedAssetIds.length &&
+      orderedAssetIds.length === current.orderedAssetIds.length
+    ) {
+      return current
+    }
+    return this.save({
+      ...current,
+      selectedAssetIds,
+      orderedAssetIds,
+      prepared: undefined,
+    })
   }
 
   private async tryRead(path: string): Promise<ReadResult> {
@@ -132,11 +190,22 @@ export class ExportTaskStore {
     }
     try {
       const parsed: unknown = JSON.parse(source)
+      if (isRecord(parsed) && parsed.schemaVersion === 1) {
+        assertV1ExportTask(parsed)
+        return { kind: 'legacy', task: parsed }
+      }
       assertExportTask(parsed)
       return { kind: 'valid', task: parsed }
     } catch (error) {
       return { kind: 'invalid', error }
     }
+  }
+
+  private async migratePrimary(task: ExportTaskV1): Promise<ExportTask> {
+    const migrated = migrateV1Task(task)
+    await this.copyAtomically(this.path, this.backupPath)
+    await this.writeAtomically(this.path, serialize(migrated))
+    return migrated
   }
 
   private async writeAtomically(targetPath: string, contents: string): Promise<void> {
@@ -186,7 +255,12 @@ export function createDefaultExportTask(now = new Date(), id: string = randomUUI
     selectedAssetIds: [],
     orderedAssetIds: [],
     whatsapp: { title: '我的表情', publisher: 'CN Memes Abroad', packSize: 30 },
-    localFolder: { format: 'original', naming: 'original', itemsPerFolder: 50 },
+    localFolder: {
+      batchName: '本地导出',
+      format: 'original',
+      naming: 'original',
+      itemsPerFolder: 50,
+    },
     createdAt: timestamp,
     updatedAt: timestamp,
   }
@@ -236,6 +310,8 @@ function assertSource(value: unknown): void {
     throw new ExportTaskReadError('Export task source is invalid')
   }
   assertNonEmptyString(value.label, 'source.label')
+  if (value.label.length > 128)
+    throw new ExportTaskReadError('Export task source label is too long')
   if (value.kind === 'wechat4' || value.kind === 'wechat-legacy') {
     assertNonEmptyString(value.sourceAccountId, 'source.sourceAccountId')
     const expectedPrefix = value.kind === 'wechat4' ? 'wechat4-' : 'wechat-legacy-'
@@ -243,8 +319,12 @@ function assertSource(value: unknown): void {
       throw new ExportTaskReadError('Export task source account ID must be opaque')
     }
   }
-  if (value.importBatchId !== undefined)
+  if (value.importBatchId !== undefined) {
     assertNonEmptyString(value.importBatchId, 'source.importBatchId')
+    if (value.importBatchId.length > 256) {
+      throw new ExportTaskReadError('Export task source import batch ID is too long')
+    }
+  }
 }
 
 function assertDestination(value: unknown): void {
@@ -252,10 +332,18 @@ function assertDestination(value: unknown): void {
   if (!isRecord(value) || (value.kind !== 'whatsapp' && value.kind !== 'local-folder')) {
     throw new ExportTaskReadError('Export task destination is invalid')
   }
-  if (value.directoryId !== undefined)
+  if (value.directoryId !== undefined) {
     assertNonEmptyString(value.directoryId, 'destination.directoryId')
-  if (value.directoryLabel !== undefined)
+    if (!/^export-directory-[a-f0-9-]{36}$/.test(value.directoryId)) {
+      throw new ExportTaskReadError('Export task directory ID must be opaque')
+    }
+  }
+  if (value.directoryLabel !== undefined) {
     assertNonEmptyString(value.directoryLabel, 'destination.directoryLabel')
+    if (value.directoryLabel.length > 128) {
+      throw new ExportTaskReadError('Export task directory label is too long')
+    }
+  }
 }
 
 function assertWhatsappSettings(value: unknown): void {
@@ -279,6 +367,12 @@ function assertWhatsappSettings(value: unknown): void {
 function assertLocalFolderSettings(value: unknown): void {
   if (!isRecord(value))
     throw new ExportTaskReadError('Export task localFolder settings are invalid')
+  assertNonEmptyString(value.batchName, 'localFolder.batchName')
+  if (value.batchName.length > 128) {
+    throw new ExportTaskReadError(
+      'Export task localFolder.batchName must be at most 128 characters',
+    )
+  }
   if (value.format !== 'original' && value.format !== 'converted-webp') {
     throw new ExportTaskReadError('Export task localFolder.format is invalid')
   }
@@ -338,7 +432,10 @@ function temporaryPathFor(path: string): string {
 }
 
 type ReadResult =
-  { kind: 'valid'; task: ExportTask } | { kind: 'missing' } | { kind: 'invalid'; error: unknown }
+  | { kind: 'valid'; task: ExportTask }
+  | { kind: 'legacy'; task: ExportTaskV1 }
+  | { kind: 'missing' }
+  | { kind: 'invalid'; error: unknown }
 
 function isUnsupported(
   result: ReadResult,
@@ -349,6 +446,48 @@ function isUnsupported(
 function describe(result: ReadResult): string {
   if (result.kind !== 'invalid') return result.kind
   return result.error instanceof Error ? result.error.message : String(result.error)
+}
+
+interface ExportTaskV1 extends Omit<ExportTask, 'schemaVersion' | 'localFolder'> {
+  schemaVersion: 1
+  localFolder: Omit<ExportTask['localFolder'], 'batchName'>
+}
+
+function assertV1ExportTask(value: unknown): asserts value is ExportTaskV1 {
+  if (!isRecord(value)) throw new ExportTaskReadError('Legacy export task must be an object')
+  const localFolder = value.localFolder
+  if (!isRecord(localFolder)) {
+    throw new ExportTaskReadError('Legacy export task localFolder settings are invalid')
+  }
+  const candidate = {
+    ...value,
+    schemaVersion: CURRENT_EXPORT_TASK_SCHEMA_VERSION,
+    localFolder: { ...localFolder, batchName: '本地导出' },
+  }
+  assertExportTask(candidate)
+}
+
+function migrateV1Task(task: ExportTaskV1): ExportTask {
+  return {
+    ...task,
+    schemaVersion: CURRENT_EXPORT_TASK_SCHEMA_VERSION,
+    localFolder: { ...task.localFolder, batchName: '本地导出' },
+  }
+}
+
+function preparationInputsChanged(current: ExportTask, draft: ExportTaskDraft): boolean {
+  return (
+    !sameJson(current.source, draft.source) ||
+    !sameJson(current.destination, draft.destination) ||
+    !sameJson(current.selectedAssetIds, draft.selectedAssetIds) ||
+    !sameJson(current.orderedAssetIds, draft.orderedAssetIds) ||
+    !sameJson(current.whatsapp, draft.whatsapp) ||
+    !sameJson(current.localFolder, draft.localFolder)
+  )
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

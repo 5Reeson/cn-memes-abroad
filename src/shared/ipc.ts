@@ -1,5 +1,6 @@
 import type {
   CollectionView,
+  ExportDestinationChoice,
   ExportTask,
   ExportTaskDraft,
   ImportMode,
@@ -8,8 +9,12 @@ import type {
   LegacyWechatDownloadMode,
   LegacyWechatDiscoveryView,
   PackSettings,
+  PrepareExportSummary,
   PreparePacksSummary,
   PrepareProgress,
+  PreparedSnapshotSummary,
+  PreparedSnapshotView,
+  SavePreparedSnapshotResult,
   SendPackProgress,
   SendPacksSummary,
   WhatsAppConnectionView,
@@ -22,6 +27,13 @@ export const IPC_CHANNELS = {
   getCollection: 'library:get-collection',
   getExportTask: 'exports:get-current-task',
   saveExportTask: 'exports:save-current-task',
+  resetExportTask: 'exports:reset-current-task',
+  chooseExportDirectory: 'exports:choose-local-directory',
+  prepareExportTask: 'exports:prepare-current-task',
+  savePreparedSnapshot: 'exports:save-prepared-snapshot',
+  listPreparedSnapshots: 'exports:list-prepared-snapshots',
+  getPreparedSnapshot: 'exports:get-prepared-snapshot',
+  deletePreparedSnapshot: 'exports:delete-prepared-snapshot',
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
   wechatLegacyDiscover: 'wechat-legacy:discover',
@@ -54,6 +66,13 @@ export interface StickerAppApi {
   getCollection(): Promise<CollectionView>
   getExportTask(): Promise<ExportTask>
   saveExportTask(task: ExportTaskDraft): Promise<ExportTask>
+  resetExportTask(): Promise<ExportTask>
+  chooseExportDirectory(): Promise<ExportDestinationChoice | undefined>
+  prepareExportTask(): Promise<PrepareExportSummary>
+  savePreparedSnapshot(forceDuplicate?: boolean): Promise<SavePreparedSnapshotResult>
+  listPreparedSnapshots(): Promise<PreparedSnapshotSummary[]>
+  getPreparedSnapshot(id: string): Promise<PreparedSnapshotView>
+  deletePreparedSnapshot(id: string): Promise<boolean>
   importAssets(mode: ImportMode): Promise<ImportSummary>
   discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
   importLegacyWechat(

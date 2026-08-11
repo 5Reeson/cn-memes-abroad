@@ -3,8 +3,15 @@ import { dirname, join } from 'node:path'
 
 import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent } from 'electron'
 
+import { ExportDestinationStore } from './exports/export-destination-store.js'
+import { ExportPreparer, type PreparedExportResult } from './exports/export-preparer.js'
 import { LocalStickerSource } from './library/local-sticker-source.js'
 import { ExportTaskStore } from './exports/export-task-store.js'
+import {
+  PreparedSnapshotStore,
+  toPreparedSnapshotSummary,
+  toPreparedSnapshotView,
+} from './exports/prepared-snapshot-store.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
@@ -20,6 +27,7 @@ import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
 import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
 import type {
   CollectionView,
+  ExportTask,
   ExportTaskDraft,
   ImportMode,
   ImportSummary,
@@ -37,11 +45,17 @@ protocol.registerSchemesAsPrivileged([
     scheme: 'sticker-asset',
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
+  {
+    scheme: 'sticker-snapshot',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
 ])
 
 let mainWindow: BrowserWindow | null = null
 let manifestStore: ManifestStore
 let exportTaskStore: ExportTaskStore
+let exportDestinationStore: ExportDestinationStore
+let preparedSnapshotStore: PreparedSnapshotStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
@@ -49,6 +63,7 @@ let wechat4Source: Wechat4StickerSource
 const localSource = new LocalStickerSource()
 const legacyWechatSource = new WechatLegacySource()
 const packPreparer = new PackPreparer()
+const exportPreparer = new ExportPreparer(packPreparer)
 let mutationQueue: Promise<unknown> = Promise.resolve()
 let legacyWechatImportController: AbortController | null = null
 let wechat4ImportController: AbortController | null = null
@@ -91,6 +106,10 @@ function previewUrl(assetId: string, sha256: string): string {
   return `sticker-asset://preview/${encodeURIComponent(assetId)}?v=${sha256.slice(0, 12)}`
 }
 
+function snapshotPreviewUrl(snapshotId: string, payloadId: string): string {
+  return `sticker-snapshot://preview/${encodeURIComponent(snapshotId)}/${encodeURIComponent(payloadId)}`
+}
+
 function toCollectionView(collection: StickerCollection): CollectionView {
   return {
     ...collection,
@@ -113,6 +132,51 @@ function enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
   const next = mutationQueue.then(operation, operation)
   mutationQueue = next.catch(() => undefined)
   return next
+}
+
+async function normalizeExportTaskDraft(draft: ExportTaskDraft): Promise<ExportTaskDraft> {
+  const collection = await manifestStore.loadOrCreate()
+  const knownIds = new Set(collection.assets.map((asset) => asset.id))
+  if (
+    draft.selectedAssetIds.some((id) => !knownIds.has(id)) ||
+    draft.orderedAssetIds.some((id) => !knownIds.has(id))
+  ) {
+    throw new TypeError('Export task contains an unknown library asset')
+  }
+  if (draft.destination?.kind !== 'local-folder') return draft
+  if (!draft.destination.directoryId) {
+    return { ...draft, destination: { kind: 'local-folder' } }
+  }
+  const destination = await exportDestinationStore.getChoice(draft.destination.directoryId)
+  if (!destination) throw new TypeError('Export directory reference is invalid')
+  return { ...draft, destination }
+}
+
+async function loadReconciledExportTask(): Promise<ExportTask> {
+  const collection = await manifestStore.loadOrCreate()
+  return exportTaskStore.reconcileAssets(new Set(collection.assets.map((asset) => asset.id)))
+}
+
+async function prepareCurrentExportTask(
+  onProgress?: Parameters<ExportPreparer['prepare']>[3],
+): Promise<{ task: ExportTask; prepared: PreparedExportResult }> {
+  const collection = await manifestStore.loadOrCreate()
+  const task = await exportTaskStore.reconcileAssets(
+    new Set(collection.assets.map((asset) => asset.id)),
+  )
+  if (task.destination?.kind === 'local-folder') {
+    if (!task.destination.directoryId) throw new Error('请先选择本地导出位置')
+    await exportDestinationStore.resolveDirectory(task.destination.directoryId)
+  }
+  const prepared = await exportPreparer.prepare(task, collection, collectionDirectory, onProgress)
+  const hasFailure =
+    prepared.warnings.length > 0 || prepared.groups.some((group) => group.status === 'failed')
+  const nextTask = await exportTaskStore.setPrepared({
+    fingerprint: prepared.fingerprint,
+    status: hasFailure ? 'partial-failure' : 'prepared',
+    preparedAt: new Date().toISOString(),
+  })
+  return { task: nextTask, prepared }
 }
 
 function assertStringArray(value: unknown, label: string): asserts value is string[] {
@@ -198,7 +262,7 @@ function installIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.getExportTask, async () => {
     try {
-      return await exportTaskStore.loadOrCreate()
+      return await enqueueMutation(loadReconciledExportTask)
     } catch (error) {
       throw sanitizeError(error)
     }
@@ -206,7 +270,110 @@ function installIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.saveExportTask, async (_event, task: ExportTaskDraft) => {
     try {
-      return await enqueueMutation(() => exportTaskStore.saveDraft(task))
+      return await enqueueMutation(async () =>
+        exportTaskStore.saveDraft(await normalizeExportTaskDraft(task)),
+      )
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.resetExportTask, async () => {
+    try {
+      return await enqueueMutation(() => exportTaskStore.reset())
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.chooseExportDirectory, async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: '选择本地导出文件夹',
+        buttonLabel: '选择',
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: app.getPath('downloads'),
+      })
+      if (result.canceled || result.filePaths.length === 0) return undefined
+      return await enqueueMutation(() =>
+        exportDestinationStore.rememberDirectory(result.filePaths[0]!),
+      )
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.prepareExportTask, async (event: IpcMainInvokeEvent) => {
+    try {
+      const { prepared } = await enqueueMutation(() =>
+        prepareCurrentExportTask((progress) =>
+          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+        ),
+      )
+      return exportPreparer.toSummary(prepared, (assetId) => {
+        const payload = prepared.groups
+          .flatMap((group) => group.payloads)
+          .find((candidate) => candidate.assetId === assetId)
+        return payload ? `sticker-asset://preview/${encodeURIComponent(assetId)}` : ''
+      })
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.savePreparedSnapshot,
+    async (event: IpcMainInvokeEvent, forceDuplicate: unknown) => {
+      if (forceDuplicate !== undefined && typeof forceDuplicate !== 'boolean') {
+        throw new TypeError('forceDuplicate must be a boolean')
+      }
+      try {
+        return await enqueueMutation(async () => {
+          const { prepared } = await prepareCurrentExportTask((progress) =>
+            event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+          )
+          const result = await preparedSnapshotStore.save(prepared, forceDuplicate === true)
+          await exportTaskStore.attachSnapshot(prepared.fingerprint, result.manifest.id)
+          return {
+            kind: result.kind,
+            snapshot: toPreparedSnapshotView(result.manifest, snapshotPreviewUrl),
+          }
+        })
+      } catch (error) {
+        throw sanitizeError(error)
+      }
+    },
+  )
+
+  ipcMain.handle(IPC_CHANNELS.listPreparedSnapshots, async () => {
+    try {
+      return (await preparedSnapshotStore.list()).map(toPreparedSnapshotSummary)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getPreparedSnapshot, async (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('Invalid snapshot ID')
+    try {
+      return toPreparedSnapshotView(await preparedSnapshotStore.get(id), snapshotPreviewUrl)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.deletePreparedSnapshot, async (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('Invalid snapshot ID')
+    try {
+      return await enqueueMutation(async () => {
+        const deleted = await preparedSnapshotStore.delete(id)
+        if (!deleted) return false
+        const task = await exportTaskStore.loadOrCreate()
+        if (task.prepared?.snapshotId === id) {
+          await exportTaskStore.setPrepared({ ...task.prepared, snapshotId: undefined })
+        }
+        return true
+      })
     } catch (error) {
       throw sanitizeError(error)
     }
@@ -519,7 +686,9 @@ function installIpcHandlers(): void {
         .filter((asset) => !removed.has(asset.id))
         .map((asset, userOrder) => ({ ...asset, userOrder }))
       const selectedAssetIds = collection.selectedAssetIds.filter((id) => !removed.has(id))
-      return toCollectionView(await manifestStore.save({ ...collection, assets, selectedAssetIds }))
+      const next = await manifestStore.save({ ...collection, assets, selectedAssetIds })
+      await exportTaskStore.reconcileAssets(new Set(assets.map((asset) => asset.id)))
+      return toCollectionView(next)
     })
   })
 
@@ -628,6 +797,29 @@ async function installAssetProtocol(): Promise<void> {
   })
 }
 
+async function installSnapshotProtocol(): Promise<void> {
+  await protocol.handle('sticker-snapshot', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const [snapshotId, payloadId] = url.pathname
+        .replace(/^\//, '')
+        .split('/')
+        .map(decodeURIComponent)
+      if (!snapshotId || !payloadId) return new Response('Not found', { status: 404 })
+      const payload = await preparedSnapshotStore.readPayload(snapshotId, payloadId)
+      return new Response(Uint8Array.from(payload.contents), {
+        headers: {
+          'Content-Type': payload.mimeType,
+          'Cache-Control': 'private, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    } catch {
+      return new Response('Unable to load snapshot payload', { status: 404 })
+    }
+  })
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -683,6 +875,12 @@ app.whenReady().then(async () => {
   exportTaskStore = new ExportTaskStore({
     path: join(userDataDirectory, 'exports', 'current-task.json'),
   })
+  exportDestinationStore = new ExportDestinationStore({
+    path: join(userDataDirectory, 'exports', 'destinations.json'),
+  })
+  preparedSnapshotStore = new PreparedSnapshotStore({
+    rootDirectory: join(userDataDirectory, 'exports', 'snapshots'),
+  })
   importPreferences = new ImportPreferencesStore(
     join(userDataDirectory, 'settings', 'import-preferences.json'),
   )
@@ -698,6 +896,7 @@ app.whenReady().then(async () => {
   await whatsappManager.initialize()
   installIpcHandlers()
   await installAssetProtocol()
+  await installSnapshotProtocol()
   createWindow()
 
   app.on('activate', () => {

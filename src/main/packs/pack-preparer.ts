@@ -13,7 +13,7 @@ import type {
 } from '../../shared/domain.js'
 import { planStickerPacks } from '../../shared/pack-plan.js'
 
-const CONVERSION_VERSION = 'wa-webp-v2'
+export const WHATSAPP_CONVERSION_VERSION = 'wa-webp-v2'
 const STICKER_DIMENSION = 512
 const TRAY_DIMENSION = 96
 const STATIC_LIMIT_BYTES = 100 * 1024
@@ -37,7 +37,9 @@ export interface PreparedPack extends Omit<PreparedPackView, 'stickers'> {
 
 function conversionKey(asset: StickerAsset): string {
   return createHash('sha256')
-    .update(`${CONVERSION_VERSION}|${asset.sha256}|${asset.animated ? 'animated' : 'static'}`)
+    .update(
+      `${WHATSAPP_CONVERSION_VERSION}|${asset.sha256}|${asset.animated ? 'animated' : 'static'}`,
+    )
     .digest('hex')
 }
 
