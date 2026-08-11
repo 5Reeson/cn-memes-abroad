@@ -74,7 +74,15 @@ describe('PackPreparer', () => {
     await writeFile(originalPath, contents)
     return {
       id: `asset-${index}`,
-      sourceKind: 'local',
+      sources: [
+        {
+          id: 'source-local-test',
+          kind: 'local',
+          label: '本机导入',
+          importBatchId: 'test-import',
+          importedAt: '2026-08-08T00:00:00.000Z',
+        },
+      ],
       displayName: `Sticker ${index}`,
       originalPath,
       sha256: createHash('sha256').update(contents).digest('hex'),

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent } from 'electron'
 
 import { LocalStickerSource } from './library/local-sticker-source.js'
+import { ExportTaskStore } from './exports/export-task-store.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
@@ -19,6 +20,7 @@ import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
 import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
 import type {
   CollectionView,
+  ExportTaskDraft,
   ImportMode,
   ImportSummary,
   LegacyWechatDownloadMode,
@@ -39,6 +41,7 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 let manifestStore: ManifestStore
+let exportTaskStore: ExportTaskStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
@@ -96,6 +99,14 @@ function toCollectionView(collection: StickerCollection): CollectionView {
       previewUrl: previewUrl(asset.id, asset.sha256),
     })),
   }
+}
+
+function applyImportResultAssets(
+  collection: StickerCollection,
+  result: { assets: StickerCollection['assets']; sourceUpdates: StickerCollection['assets'] },
+): StickerCollection['assets'] {
+  const updates = new Map(result.sourceUpdates.map((asset) => [asset.id, asset]))
+  return [...collection.assets.map((asset) => updates.get(asset.id) ?? asset), ...result.assets]
 }
 
 function enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -185,6 +196,22 @@ function installIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle(IPC_CHANNELS.getExportTask, async () => {
+    try {
+      return await exportTaskStore.loadOrCreate()
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.saveExportTask, async (_event, task: ExportTaskDraft) => {
+    try {
+      return await enqueueMutation(() => exportTaskStore.saveDraft(task))
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
   ipcMain.handle(
     IPC_CHANNELS.importAssets,
     async (event: IpcMainInvokeEvent, mode: ImportMode): Promise<ImportSummary> => {
@@ -203,13 +230,17 @@ function installIpcHandlers(): void {
 
         return await enqueueMutation(async () => {
           const collection = await manifestStore.loadOrCreate()
-          const result = await localSource.import(
+          const result = await localSource.importAttributed(
             { collection, collectionDirectory, inputs },
+            {
+              sourceKind: 'local',
+              sourceLabel: mode === 'files' ? '本机文件' : '本机文件夹',
+            },
             (progress) => event.sender.send(IPC_CHANNELS.importProgress, progress),
           )
           const next = await manifestStore.save({
             ...collection,
-            assets: [...collection.assets, ...result.assets],
+            assets: applyImportResultAssets(collection, result),
             selectedAssetIds: [
               ...collection.selectedAssetIds,
               ...result.assets.map((asset) => asset.id),
@@ -277,7 +308,7 @@ function installIpcHandlers(): void {
             if (legacyWechatImportController === controller) legacyWechatImportController = null
             const next = await manifestStore.save({
               ...collection,
-              assets: [...collection.assets, ...result.assets],
+              assets: applyImportResultAssets(collection, result),
               selectedAssetIds: [
                 ...collection.selectedAssetIds,
                 ...result.assets.map((asset) => asset.id),
@@ -370,12 +401,16 @@ function installIpcHandlers(): void {
         try {
           return await enqueueMutation(async (): Promise<ImportSummary> => {
             const collection = await manifestStore.loadOrCreate()
+            const sourceLabel = (await wechat4Source.discover()).accounts.find(
+              (account) => account.id === accountId,
+            )?.label
             let uncommittedOriginalPaths: string[] = []
             try {
               controller.signal.throwIfAborted()
               const result = await wechat4Source.import(
                 {
                   accountId,
+                  ...(sourceLabel === undefined ? {} : { sourceLabel }),
                   collection,
                   collectionDirectory,
                   signal: controller.signal,
@@ -400,7 +435,7 @@ function installIpcHandlers(): void {
               if (wechat4ImportController === controller) wechat4ImportController = null
               const next = await manifestStore.save({
                 ...collection,
-                assets: [...collection.assets, ...result.assets],
+                assets: applyImportResultAssets(collection, result),
                 selectedAssetIds: [
                   ...collection.selectedAssetIds,
                   ...result.assets.map((asset) => asset.id),
@@ -645,6 +680,9 @@ app.whenReady().then(async () => {
   })
   collectionDirectory = join(userDataDirectory, 'library', 'collections', 'default')
   manifestStore = new ManifestStore(collectionDirectory)
+  exportTaskStore = new ExportTaskStore({
+    path: join(userDataDirectory, 'exports', 'current-task.json'),
+  })
   importPreferences = new ImportPreferencesStore(
     join(userDataDirectory, 'settings', 'import-preferences.json'),
   )

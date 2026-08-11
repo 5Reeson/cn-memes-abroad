@@ -13,6 +13,8 @@ import type {
 
 const api: StickerAppApi = {
   getCollection: () => ipcRenderer.invoke(IPC_CHANNELS.getCollection),
+  getExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.getExportTask),
+  saveExportTask: (task) => ipcRenderer.invoke(IPC_CHANNELS.saveExportTask, task),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),
   discoverLegacyWechat: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDiscover),
   importLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   constants as fsConstants,
   copyFile,
@@ -10,7 +10,13 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
-import { CURRENT_SCHEMA_VERSION, type StickerCollection } from '../../shared/domain.js'
+import {
+  CURRENT_SCHEMA_VERSION,
+  type StickerAsset,
+  type StickerAssetSource,
+  type StickerCollection,
+  type StickerSourceKind,
+} from '../../shared/domain.js'
 
 const MANIFEST_FILE_NAME = 'manifest.json'
 const BACKUP_FILE_NAME = `${MANIFEST_FILE_NAME}.bak`
@@ -83,7 +89,13 @@ export class ManifestStore {
 
   async load(): Promise<StickerCollection> {
     const primary = await this.tryRead(this.manifestPath)
-    if (primary.kind === 'valid') return primary.collection
+    if (primary.kind === 'valid') {
+      if (primary.migrated) {
+        await this.copyFileAtomically(this.manifestPath, this.backupPath)
+        await this.writeFileAtomically(this.manifestPath, serializeManifest(primary.collection))
+      }
+      return primary.collection
+    }
     if (isUnsupportedSchema(primary)) throw primary.error
 
     const backup = await this.tryRead(this.backupPath)
@@ -98,7 +110,13 @@ export class ManifestStore {
 
   async loadOrCreate(seed = this.defaultCollection): Promise<StickerCollection> {
     const primary = await this.tryRead(this.manifestPath)
-    if (primary.kind === 'valid') return primary.collection
+    if (primary.kind === 'valid') {
+      if (primary.migrated) {
+        await this.copyFileAtomically(this.manifestPath, this.backupPath)
+        await this.writeFileAtomically(this.manifestPath, serializeManifest(primary.collection))
+      }
+      return primary.collection
+    }
     if (isUnsupportedSchema(primary)) throw primary.error
 
     const backup = await this.tryRead(this.backupPath)
@@ -152,8 +170,11 @@ export class ManifestStore {
 
     try {
       const parsed: unknown = JSON.parse(source)
+      if (isRecord(parsed) && parsed.schemaVersion === 1) {
+        return { kind: 'valid', collection: migrateVersion1Manifest(parsed), migrated: true }
+      }
       assertManifest(parsed)
-      return { kind: 'valid', collection: parsed }
+      return { kind: 'valid', collection: parsed, migrated: false }
     } catch (error) {
       return { kind: 'invalid', error }
     }
@@ -247,7 +268,9 @@ export function createDefaultCollection(
 }
 
 type ReadResult =
-  { kind: 'valid'; collection: StickerCollection } | { kind: 'missing' } | InvalidReadResult
+  | { kind: 'valid'; collection: StickerCollection; migrated: boolean }
+  | { kind: 'missing' }
+  | InvalidReadResult
 
 type InvalidReadResult = { kind: 'invalid'; error: unknown }
 
@@ -352,11 +375,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assertAsset(value: unknown): void {
   if (!isRecord(value)) throw new ManifestReadError('Each collection asset must be a JSON object')
   assertNonEmptyString(value.id, 'assets[].id')
-  if (!['local', 'wechat4', 'wechat-legacy'].includes(String(value.sourceKind))) {
-    throw new ManifestReadError('Collection manifest assets[].sourceKind is invalid')
+  if (!Array.isArray(value.sources) || value.sources.length === 0) {
+    throw new ManifestReadError('Collection manifest assets[].sources must be a non-empty array')
   }
-  if (value.sourceAccountId !== undefined) {
-    assertNonEmptyString(value.sourceAccountId, 'assets[].sourceAccountId')
+  for (const source of value.sources) assertAssetSource(source)
+  if (
+    new Set(value.sources.map((source) => (source as StickerAssetSource).id)).size !==
+    value.sources.length
+  ) {
+    throw new ManifestReadError('Collection manifest assets[].sources IDs must be unique')
   }
   assertNonEmptyString(value.displayName, 'assets[].displayName')
   assertNonEmptyString(value.originalPath, 'assets[].originalPath')
@@ -373,6 +400,112 @@ function assertAsset(value: unknown): void {
   assertIsoTimestamp(value.importedAt, 'assets[].importedAt')
   assertNonNegativeInteger(value.sourceOrder, 'assets[].sourceOrder')
   assertNonNegativeInteger(value.userOrder, 'assets[].userOrder')
+}
+
+function assertAssetSource(value: unknown): asserts value is StickerAssetSource {
+  if (!isRecord(value)) {
+    throw new ManifestReadError('Each collection asset source must be a JSON object')
+  }
+  assertNonEmptyString(value.id, 'assets[].sources[].id')
+  if (!isSourceKind(value.kind)) {
+    throw new ManifestReadError('Collection manifest assets[].sources[].kind is invalid')
+  }
+  assertNonEmptyString(value.label, 'assets[].sources[].label')
+  if (value.accountId !== undefined) {
+    assertNonEmptyString(value.accountId, 'assets[].sources[].accountId')
+  }
+  if (value.importBatchId !== undefined) {
+    assertNonEmptyString(value.importBatchId, 'assets[].sources[].importBatchId')
+  }
+  assertIsoTimestamp(value.importedAt, 'assets[].sources[].importedAt')
+}
+
+function isSourceKind(value: unknown): value is StickerSourceKind {
+  return value === 'local' || value === 'wechat4' || value === 'wechat-legacy'
+}
+
+function legacySourceId(kind: StickerSourceKind, accountId: string | undefined): string {
+  const identity = accountId ?? 'legacy-local-imports'
+  return `source-${createHash('sha256').update(`${kind}|${identity}`).digest('hex').slice(0, 24)}`
+}
+
+function legacySourceLabel(kind: StickerSourceKind, accountId: string | undefined): string {
+  if (kind === 'local') return '旧版本机导入'
+  const suffix = accountId ? ` · ${accountId.slice(-4)}` : ''
+  return `${kind === 'wechat4' ? '微信 4.x 账号' : '微信旧版账号'}${suffix}`
+}
+
+function migrateVersion1Manifest(value: Record<string, unknown>): StickerCollection {
+  assertLegacyVersion1Manifest(value)
+  const assets = value.assets.map((asset): StickerAsset => {
+    const { sourceKind, sourceAccountId, ...rest } = asset
+    const source: StickerAssetSource = {
+      id: legacySourceId(sourceKind, sourceAccountId),
+      kind: sourceKind,
+      label: legacySourceLabel(sourceKind, sourceAccountId),
+      ...(sourceAccountId === undefined ? {} : { accountId: sourceAccountId }),
+      ...(sourceKind === 'local' ? { importBatchId: 'legacy-local-imports' } : {}),
+      importedAt: asset.importedAt,
+    }
+    return { ...rest, sources: [source] }
+  })
+  const migrated = { ...value, schemaVersion: CURRENT_SCHEMA_VERSION, assets }
+  assertManifest(migrated)
+  return migrated
+}
+
+function assertLegacyVersion1Manifest(value: Record<string, unknown>): asserts value is Record<
+  string,
+  unknown
+> & {
+  assets: Array<
+    Omit<StickerAsset, 'sources'> & {
+      sourceKind: StickerSourceKind
+      sourceAccountId?: string
+    }
+  >
+} {
+  assertNonEmptyString(value.id, 'id')
+  assertNonEmptyString(value.title, 'title')
+  assertNonEmptyString(value.publisher, 'publisher')
+  if (
+    !Number.isInteger(value.packSize) ||
+    (value.packSize as number) < 3 ||
+    (value.packSize as number) > 30
+  ) {
+    throw new ManifestReadError('Collection manifest packSize must be an integer from 3 to 30')
+  }
+  if (!Array.isArray(value.assets)) {
+    throw new ManifestReadError('Collection manifest assets must be an array')
+  }
+  for (const asset of value.assets) {
+    if (!isRecord(asset)) throw new ManifestReadError('Each collection asset must be an object')
+    if (!isSourceKind(asset.sourceKind)) {
+      throw new ManifestReadError('Collection manifest assets[].sourceKind is invalid')
+    }
+    if (asset.sourceAccountId !== undefined) {
+      assertNonEmptyString(asset.sourceAccountId, 'assets[].sourceAccountId')
+    }
+    const currentShape: Record<string, unknown> = { ...asset }
+    delete currentShape.sourceKind
+    delete currentShape.sourceAccountId
+    assertAsset({
+      ...currentShape,
+      sources: [
+        {
+          id: 'legacy-validation',
+          kind: asset.sourceKind,
+          label: 'Legacy validation',
+          importedAt: asset.importedAt,
+        },
+      ],
+    })
+  }
+  if (!Array.isArray(value.selectedAssetIds) || !value.selectedAssetIds.every(isString)) {
+    throw new ManifestReadError('Collection manifest selectedAssetIds must be a string array')
+  }
+  assertIsoTimestamp(value.createdAt, 'createdAt')
+  assertIsoTimestamp(value.updatedAt, 'updatedAt')
 }
 
 function assertNonNegativeInteger(value: unknown, field: string): void {

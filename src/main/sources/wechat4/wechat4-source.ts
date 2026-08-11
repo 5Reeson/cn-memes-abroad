@@ -40,6 +40,7 @@ const RECORD_RESOLUTION_TIMEOUT_MS = 45_000
 
 export interface Wechat4ImportRequest {
   accountId: string
+  sourceLabel?: string
   collection: StickerCollection
   collectionDirectory: string
   signal?: AbortSignal
@@ -656,6 +657,7 @@ export class Wechat4StickerSource {
         {
           sourceKind: this.kind,
           sourceAccountId: request.accountId,
+          sourceLabel: request.sourceLabel,
           displayName: (path) => labels.get(path) ?? basename(path),
         },
         async (progress: ImportProgress) => {
@@ -674,6 +676,7 @@ export class Wechat4StickerSource {
       const remap = (path: string) => labels.get(path) ?? '微信表情'
       return {
         assets: imported.assets,
+        sourceUpdates: imported.sourceUpdates,
         duplicates: imported.duplicates.map(remap),
         failures: [
           ...resolutionFailures,

@@ -266,13 +266,13 @@ describe('Wechat4StickerSource', () => {
 
     expect(source.kind).toBe('wechat4')
     expect(result.assets).toHaveLength(4)
-    expect(result.assets.map((asset) => asset.sourceKind)).toEqual([
+    expect(result.assets.map((asset) => asset.sources[0]?.kind)).toEqual([
       'wechat4',
       'wechat4',
       'wechat4',
       'wechat4',
     ])
-    expect(result.assets.map((asset) => asset.sourceAccountId)).toEqual([
+    expect(result.assets.map((asset) => asset.sources[0]?.accountId)).toEqual([
       setup.accountId,
       setup.accountId,
       setup.accountId,

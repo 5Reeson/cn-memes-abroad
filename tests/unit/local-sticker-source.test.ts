@@ -188,6 +188,8 @@ describe('LocalStickerSource', () => {
 
     expect(second.duplicates).toEqual([source])
     expect(second.assets).toHaveLength(1)
+    expect(second.sourceUpdates).toHaveLength(1)
+    expect(second.sourceUpdates[0]?.sources).toHaveLength(2)
     expect(second.assets[0]).toMatchObject({
       displayName: 'new',
       mimeType: 'image/webp',
@@ -195,6 +197,40 @@ describe('LocalStickerSource', () => {
       userOrder: 8,
     })
     expect(basename(second.assets[0]!.originalPath)).toBe(`${second.assets[0]!.id}.webp`)
+  })
+
+  it('merges account provenance when the same content is imported from two sources', async () => {
+    const source = join(temporaryDirectory, 'same.png')
+    const collectionDirectory = join(temporaryDirectory, 'collection')
+    await sharp({ create: { width: 12, height: 12, channels: 4, background: '#445566' } })
+      .png()
+      .toFile(source)
+    const importer = new LocalStickerSource()
+    const first = await importer.importAttributed(
+      { collection: collection(), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-a',
+        sourceLabel: '微信 4.x 账号 · 0001',
+      },
+    )
+    const second = await importer.importAttributed(
+      { collection: collection(first.assets), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-b',
+        sourceLabel: '微信 4.x 账号 · 0002',
+      },
+    )
+
+    expect(second.assets).toEqual([])
+    expect(second.duplicates).toEqual([source])
+    expect(second.sourceUpdates).toHaveLength(1)
+    expect(second.sourceUpdates[0]?.sources.map((item) => item.accountId)).toEqual([
+      'wechat4-account-a',
+      'wechat4-account-b',
+    ])
+    expect(new Set(second.sourceUpdates[0]?.sources.map((item) => item.id)).size).toBe(2)
   })
 
   it('marks multi-page images as animated and records their duration', async () => {

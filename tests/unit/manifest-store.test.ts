@@ -103,6 +103,101 @@ describe('ManifestStore', () => {
     expect(JSON.parse(await readFile(store.manifestPath, 'utf8'))).toEqual(unsupported)
   })
 
+  it('migrates a v1 manifest to v2 without losing order, selection, or source attribution', async () => {
+    const directory = await temporaryDirectory()
+    const store = new ManifestStore(directory)
+    const legacy = {
+      schemaVersion: 1,
+      id: 'legacy',
+      title: '旧素材库',
+      publisher: '旧发布者',
+      packSize: 13,
+      assets: [
+        {
+          id: 'asset-legacy',
+          sourceKind: 'wechat4',
+          sourceAccountId: 'wechat4-deadbeefdeadbeef',
+          displayName: '微信表情 0001',
+          originalPath: '/synthetic/original.webp',
+          sha256: 'a'.repeat(64),
+          mimeType: 'image/webp',
+          animated: true,
+          width: 128,
+          height: 128,
+          durationMs: 320,
+          importedAt: '2026-08-08T01:00:00.000Z',
+          sourceOrder: 9,
+          userOrder: 4,
+        },
+      ],
+      selectedAssetIds: ['asset-legacy'],
+      createdAt: '2026-08-08T01:00:00.000Z',
+      updatedAt: '2026-08-08T02:00:00.000Z',
+    }
+    await writeFile(store.manifestPath, JSON.stringify(legacy), 'utf8')
+
+    const migrated = await store.loadOrCreate()
+
+    expect(migrated).toMatchObject({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      id: 'legacy',
+      publisher: '旧发布者',
+      packSize: 13,
+      selectedAssetIds: ['asset-legacy'],
+    })
+    expect(migrated.assets[0]).toMatchObject({ sourceOrder: 9, userOrder: 4 })
+    expect(migrated.assets[0]?.sources).toEqual([
+      {
+        id: expect.stringMatching(/^source-[a-f0-9]{24}$/),
+        kind: 'wechat4',
+        label: '微信 4.x 账号 · beef',
+        accountId: 'wechat4-deadbeefdeadbeef',
+        importedAt: '2026-08-08T01:00:00.000Z',
+      },
+    ])
+    expect(JSON.parse(await readFile(store.manifestPath, 'utf8')).schemaVersion).toBe(2)
+    expect(JSON.parse(await readFile(store.backupPath, 'utf8'))).toEqual(legacy)
+  })
+
+  it('round-trips multiple source references for one de-duplicated asset', async () => {
+    const directory = await temporaryDirectory()
+    const store = new ManifestStore(directory)
+    const base = collectionFixture()
+    const asset = {
+      id: 'asset-multi-source',
+      sources: [
+        {
+          id: 'source-account-a',
+          kind: 'wechat4' as const,
+          label: '微信 4.x 账号 · 0001',
+          accountId: 'wechat4-aaaaaaaaaaaaaaaa',
+          importedAt: '2026-08-08T01:00:00.000Z',
+        },
+        {
+          id: 'source-account-b',
+          kind: 'wechat4' as const,
+          label: '微信 4.x 账号 · 0002',
+          accountId: 'wechat4-bbbbbbbbbbbbbbbb',
+          importedAt: '2026-08-08T02:00:00.000Z',
+        },
+      ],
+      displayName: '共享表情',
+      originalPath: '/synthetic/shared.webp',
+      sha256: 'b'.repeat(64),
+      mimeType: 'image/webp',
+      animated: false,
+      width: 128,
+      height: 128,
+      importedAt: '2026-08-08T01:00:00.000Z',
+      sourceOrder: 0,
+      userOrder: 0,
+    }
+
+    await store.save({ ...base, assets: [asset] })
+
+    expect((await new ManifestStore(directory).load()).assets[0]?.sources).toEqual(asset.sources)
+  })
+
   it('does not overwrite a good backup when saving over a corrupt primary', async () => {
     const directory = await temporaryDirectory()
     const store = new ManifestStore(directory)

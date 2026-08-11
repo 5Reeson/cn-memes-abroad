@@ -1,5 +1,7 @@
 import type {
   CollectionView,
+  ExportTask,
+  ExportTaskDraft,
   ImportMode,
   ImportProgress,
   ImportSummary,
@@ -18,6 +20,8 @@ import type {
 
 export const IPC_CHANNELS = {
   getCollection: 'library:get-collection',
+  getExportTask: 'exports:get-current-task',
+  saveExportTask: 'exports:save-current-task',
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
   wechatLegacyDiscover: 'wechat-legacy:discover',
@@ -48,6 +52,8 @@ export const IPC_CHANNELS = {
 
 export interface StickerAppApi {
   getCollection(): Promise<CollectionView>
+  getExportTask(): Promise<ExportTask>
+  saveExportTask(task: ExportTaskDraft): Promise<ExportTask>
   importAssets(mode: ImportMode): Promise<ImportSummary>
   discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
   importLegacyWechat(

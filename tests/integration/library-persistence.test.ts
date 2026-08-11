@@ -61,4 +61,47 @@ describe('local library persistence', () => {
       ),
     )
   })
+
+  it('persists every source when one content hash is shared by two accounts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cn-memes-library-provenance-'))
+    cleanup.push(root)
+    const source = join(root, 'shared.png')
+    const collectionDirectory = join(root, 'library', 'collections', 'default')
+    await sharp({ create: { width: 20, height: 20, channels: 4, background: '#445566' } })
+      .png()
+      .toFile(source)
+
+    const store = new ManifestStore(collectionDirectory)
+    const initial = await store.loadOrCreate()
+    const importer = new LocalStickerSource()
+    const first = await importer.importAttributed(
+      { collection: initial, collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-aaaaaaaaaaaaaaaa',
+        sourceLabel: '微信 4.x 账号 · 0001',
+      },
+    )
+    const afterFirst = await store.save({ ...initial, assets: first.assets })
+    const second = await importer.importAttributed(
+      { collection: afterFirst, collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-bbbbbbbbbbbbbbbb',
+        sourceLabel: '微信 4.x 账号 · 0002',
+      },
+    )
+    const updates = new Map(second.sourceUpdates.map((asset) => [asset.id, asset]))
+    await store.save({
+      ...afterFirst,
+      assets: afterFirst.assets.map((asset) => updates.get(asset.id) ?? asset),
+    })
+
+    const reloaded = await new ManifestStore(collectionDirectory).load()
+    expect(reloaded.assets).toHaveLength(1)
+    expect(reloaded.assets[0]?.sources.map((item) => item.accountId)).toEqual([
+      'wechat4-aaaaaaaaaaaaaaaa',
+      'wechat4-bbbbbbbbbbbbbbbb',
+    ])
+  })
 })

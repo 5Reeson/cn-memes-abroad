@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 
@@ -9,6 +9,7 @@ import type {
   ImportProgress,
   ImportResult,
   StickerAsset,
+  StickerAssetSource,
   StickerCollection,
   StickerSource,
   StickerSourceKind,
@@ -45,6 +46,9 @@ export type ImportProgressHandler = (progress: ImportProgress) => void | Promise
 export interface ImportAttribution {
   sourceKind: StickerSourceKind
   sourceAccountId?: string
+  sourceId?: string
+  sourceLabel?: string
+  importBatchId?: string
   displayName?: (path: string, index: number) => string
 }
 
@@ -185,6 +189,36 @@ function nextOrder(assets: readonly StickerAsset[], key: 'sourceOrder' | 'userOr
   return assets.reduce((highest, asset) => Math.max(highest, asset[key]), -1) + 1
 }
 
+function sourceReference(attribution: ImportAttribution, importedAt: string): StickerAssetSource {
+  const importBatchId =
+    attribution.importBatchId ??
+    (attribution.sourceAccountId === undefined ? `local-import-${randomUUID()}` : undefined)
+  const identity =
+    attribution.sourceAccountId ?? importBatchId ?? `${attribution.sourceKind}-${randomUUID()}`
+  const id =
+    attribution.sourceId ??
+    `source-${createHash('sha256')
+      .update(`${attribution.sourceKind}|${identity}`)
+      .digest('hex')
+      .slice(0, 24)}`
+  const defaultLabel =
+    attribution.sourceKind === 'local'
+      ? '本机导入'
+      : attribution.sourceKind === 'wechat4'
+        ? '微信 4.x 账号'
+        : '微信旧版账号'
+  return {
+    id,
+    kind: attribution.sourceKind,
+    label: attribution.sourceLabel?.trim() || defaultLabel,
+    ...(attribution.sourceAccountId === undefined
+      ? {}
+      : { accountId: attribution.sourceAccountId }),
+    ...(importBatchId === undefined ? {} : { importBatchId }),
+    importedAt,
+  }
+}
+
 async function copyOriginal(
   bytes: Buffer,
   originalsDirectory: string,
@@ -242,12 +276,15 @@ export class LocalStickerSource implements StickerSource {
     const discovery = await discoverWithFailures(request.inputs)
     const originalsDirectory = join(resolve(request.collectionDirectory), 'originals')
     const assets: StickerAsset[] = []
+    const sourceUpdates = new Map<string, StickerAsset>()
     const duplicates: string[] = []
     const failures = [...discovery.failures]
-    const knownHashes = new Set(request.collection.assets.map((asset) => asset.sha256))
+    const knownByHash = new Map(request.collection.assets.map((asset) => [asset.sha256, asset]))
     const createdOriginalPaths: string[] = []
     let sourceOrder = nextOrder(request.collection.assets, 'sourceOrder')
     let userOrder = nextOrder(request.collection.assets, 'userOrder')
+    const batchImportedAt = new Date().toISOString()
+    const source = sourceReference(attribution, batchImportedAt)
     const total = discovery.files.length + discovery.failures.length
     let completed = discovery.failures.length
 
@@ -273,8 +310,17 @@ export class LocalStickerSource implements StickerSource {
           const inspected = await inspectImage(path)
           request.signal?.throwIfAborted()
           const hash = sha256(inspected.bytes)
-          if (knownHashes.has(hash)) {
+          const duplicateAsset = knownByHash.get(hash)
+          if (duplicateAsset) {
             duplicates.push(path)
+            if (!duplicateAsset.sources.some((item) => item.id === source.id)) {
+              const updated = {
+                ...duplicateAsset,
+                sources: [...duplicateAsset.sources, { ...source }],
+              }
+              knownByHash.set(hash, updated)
+              sourceUpdates.set(updated.id, updated)
+            }
           } else {
             const id = `asset-${hash.slice(0, 24)}`
             const copied = await copyOriginal(
@@ -285,13 +331,10 @@ export class LocalStickerSource implements StickerSource {
             )
             if (copied.created) createdOriginalPaths.push(copied.path)
             request.signal?.throwIfAborted()
-            const importedAt = new Date().toISOString()
+            const importedAt = batchImportedAt
             assets.push({
               id,
-              sourceKind: attribution.sourceKind,
-              ...(attribution.sourceAccountId === undefined
-                ? {}
-                : { sourceAccountId: attribution.sourceAccountId }),
+              sources: [{ ...source }],
               displayName:
                 attribution.displayName?.(path, inputIndex) ?? basename(path, extname(path)),
               originalPath: copied.path,
@@ -305,7 +348,7 @@ export class LocalStickerSource implements StickerSource {
               sourceOrder,
               userOrder,
             })
-            knownHashes.add(hash)
+            knownByHash.set(hash, assets.at(-1)!)
             sourceOrder += 1
             userOrder += 1
           }
@@ -327,6 +370,6 @@ export class LocalStickerSource implements StickerSource {
       throw error
     }
 
-    return { assets, duplicates, failures }
+    return { assets, sourceUpdates: [...sourceUpdates.values()], duplicates, failures }
   }
 }

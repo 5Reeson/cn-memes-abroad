@@ -111,11 +111,11 @@ describe('WechatLegacySource', () => {
     expect(result.assets).toHaveLength(2)
     expect(result.duplicates).toHaveLength(1)
     expect(result.failures).toHaveLength(1)
-    expect(result.assets.map((asset) => asset.sourceKind)).toEqual([
+    expect(result.assets.map((asset) => asset.sources[0]?.kind)).toEqual([
       'wechat-legacy',
       'wechat-legacy',
     ])
-    expect(result.assets.every((asset) => asset.sourceAccountId === account!.id)).toBe(true)
+    expect(result.assets.every((asset) => asset.sources[0]?.accountId === account!.id)).toBe(true)
     expect(result.assets.map((asset) => asset.displayName)).toEqual([
       '微信表情 0001',
       '微信表情 0002',

@@ -281,6 +281,7 @@ export class WechatLegacySource {
         {
           sourceKind: 'wechat-legacy',
           sourceAccountId: account.id,
+          sourceLabel: account.label,
           displayName: (path) => labels.get(path) ?? basename(path),
         },
         async (progress) => {
@@ -309,6 +310,7 @@ export class WechatLegacySource {
       })
       return {
         assets: imported.assets,
+        sourceUpdates: imported.sourceUpdates,
         duplicates: imported.duplicates.map(remapPath),
         failures: [
           ...downloadFailures,
