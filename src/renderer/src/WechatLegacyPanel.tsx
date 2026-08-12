@@ -178,7 +178,7 @@ export function WechatLegacyPanel({
                 <article key={account.id}>
                   <div>
                     <strong>{account.label}</strong>
-                    <span>{account.stickerCount} 张收藏贴纸</span>
+                    <span>{account.stickerCount} 张收藏表情</span>
                   </div>
                   <button
                     type="button"
@@ -198,7 +198,7 @@ export function WechatLegacyPanel({
         <div className="wechat-legacy-empty">
           <p>
             {discovery?.rootFound
-              ? '没有找到可读取的 fav.archive。请确认微信 3.x 曾在这台 Mac 登录并收藏过贴纸。'
+              ? '没有找到可读取的 fav.archive。请确认微信 3.x 曾在这台 Mac 登录并收藏过表情。'
               : '没有找到微信 3.x 的 Legacy 数据目录。微信 4.x 将在 Phase 7 支持。'}
           </p>
           <button type="button" className="secondary-button" onClick={() => void discover()}>

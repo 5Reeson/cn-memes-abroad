@@ -186,6 +186,12 @@ export interface PrepareExportSummary {
   assetFailures: PreparedAssetFailure[]
 }
 
+export interface LocalExportSummary {
+  directoryLabel: string
+  groupCount: number
+  assetCount: number
+}
+
 export interface PreparedSnapshotSummary {
   id: string
   name: string

@@ -23,6 +23,7 @@ interface WhatsAppSendPanelProps {
   expectedPackCount: number
   preparedPacks: PreparedPackView[]
   onError(message: string): void
+  onSent?(): void
 }
 
 const initialConnection: WhatsAppConnectionView = {
@@ -55,6 +56,7 @@ export function WhatsAppSendPanel({
   expectedPackCount,
   preparedPacks,
   onError,
+  onSent,
 }: WhatsAppSendPanelProps) {
   const [connection, setConnection] = useState<WhatsAppConnectionView>(initialConnection)
   const [connectionBusy, setConnectionBusy] = useState(false)
@@ -223,6 +225,7 @@ export function WhatsAppSendPanel({
         ...current,
         ...Object.fromEntries(result.receipts.map((receipt) => [receipt.packId, receipt])),
       }))
+      onSent?.()
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -467,12 +470,12 @@ export function WhatsAppSendPanel({
               <strong>{selectedTarget?.name ?? '请选择发送目标'}</strong>
               <p>
                 {!readyToSend
-                  ? '请先点击上方“准备”按钮完成贴纸转换。'
+                  ? '请先点击上方“准备传输”完成表情转换。'
                   : sending
                     ? '正在逐包上传，请保持应用打开。'
                     : sentCount === expectedPackCount
-                      ? '全部贴纸包已发送，请回到手机逐包添加。'
-                      : `准备发送 ${expectedPackCount} 个原生贴纸包。`}
+                      ? '全部 WhatsApp 原生贴纸包已发送，请回到手机逐包添加。'
+                      : `准备发送 ${expectedPackCount} 个 WhatsApp 原生贴纸包。`}
               </p>
             </div>
             {failedPackIds.length > 0 ? (
@@ -517,7 +520,9 @@ export function WhatsAppSendPanel({
                       <strong>{pack.name}</strong>
                       <small>
                         {progress.message ??
-                          (progress.status === 'uploading' ? '正在上传原生贴纸包…' : '发送成功')}
+                          (progress.status === 'uploading'
+                            ? '正在上传 WhatsApp 原生贴纸包…'
+                            : '发送成功')}
                       </small>
                     </span>
                   </div>

@@ -1,197 +1,92 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { CheckSquareIcon as CheckSquare } from '@phosphor-icons/react/CheckSquare'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
-import { GearSixIcon as GearSix } from '@phosphor-icons/react/GearSix'
-import { DotsSixIcon as GripDotsSix } from '@phosphor-icons/react/DotsSix'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
-import { InfoIcon as Info } from '@phosphor-icons/react/Info'
-import { PlusIcon as Plus } from '@phosphor-icons/react/Plus'
-import { SquaresFourIcon as SquaresFour } from '@phosphor-icons/react/SquaresFour'
-import { SquareIcon as Square } from '@phosphor-icons/react/Square'
+import { LinkIcon as Link } from '@phosphor-icons/react/Link'
+import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
 import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
 import { UploadSimpleIcon as UploadSimple } from '@phosphor-icons/react/UploadSimple'
+import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/WarningCircle'
 import { WechatLogoIcon as WechatLogo } from '@phosphor-icons/react/WechatLogo'
+import { WhatsappLogoIcon as WhatsappLogo } from '@phosphor-icons/react/WhatsappLogo'
 import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type {
   CollectionView,
+  ExportTask,
+  ExportTaskDraft,
   ImportFailure,
   ImportMode,
   ImportProgress,
   ImportSummary,
-  PackSettings,
+  PrepareExportSummary,
   PreparedPackView,
-  PrepareProgress,
+  PreparedSnapshotView,
+  PreparedSnapshotSummary,
+  WhatsAppConnectionView,
 } from '../../shared/domain.js'
-import { parsePackSizeInput, planStickerPacks } from '../../shared/pack-plan.js'
+import { AppShell, type AppPage } from './components/AppShell.js'
+import { StickerPicker } from './components/StickerPicker.js'
+import { WhatsAppConnectionPanel, connectionLabel } from './components/WhatsAppConnectionPanel.js'
+import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
 import { Wechat4Panel } from './Wechat4Panel.js'
 import { WechatLegacyPanel } from './WechatLegacyPanel.js'
 
-type AssetView = CollectionView['assets'][number]
-
-interface ImportNotice {
-  id: number
-  kind: 'complete' | 'stopped'
-  imported: number
-  duplicates: number
-  failed: number
-  dismissing: boolean
+function draftFromTask(task: ExportTask): ExportTaskDraft {
+  return {
+    currentStep: task.currentStep,
+    source: task.source,
+    destination: task.destination,
+    selectedAssetIds: task.selectedAssetIds,
+    orderedAssetIds: task.orderedAssetIds,
+    whatsapp: task.whatsapp,
+    localFolder: task.localFolder,
+  }
 }
 
-function formatBytes(width: number, height: number): string {
-  return `${width} × ${height}`
-}
-
-function SortableSticker({
-  asset,
-  selected,
-  selectionIndex,
-  onToggle,
-}: {
-  asset: AssetView
-  selected: boolean
-  selectionIndex: number
-  onToggle: () => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: asset.id,
-  })
-  const style = { transform: CSS.Transform.toString(transform), transition }
-
-  return (
-    <article
-      ref={setNodeRef}
-      style={style}
-      className={`sticker-tile${selected ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}`}
-    >
-      <div className="sticker-preview">
-        <img src={asset.previewUrl} alt={asset.displayName} draggable={false} />
-        <button
-          className="selection-button"
-          type="button"
-          aria-label={selected ? `取消选择 ${asset.displayName}` : `选择 ${asset.displayName}`}
-          aria-pressed={selected}
-          onClick={onToggle}
-        >
-          {selected ? <span>{selectionIndex + 1}</span> : <Square size={14} />}
-        </button>
-        <button
-          className="drag-handle"
-          type="button"
-          aria-label={`拖动排序 ${asset.displayName}`}
-          {...attributes}
-          {...listeners}
-        >
-          <GripDotsSix size={18} weight="bold" />
-        </button>
-        {asset.animated && <span className="media-badge">动图</span>}
-      </div>
-      <div className="sticker-meta">
-        <strong title={asset.displayName}>{asset.displayName}</strong>
-        <span>{formatBytes(asset.width, asset.height)}</span>
-      </div>
-    </article>
-  )
-}
-
-function EmptyLibrary({
-  onImport,
-  onWechat4,
-  onWechatLegacy,
-}: {
-  onImport: (mode: ImportMode) => void
-  onWechat4: () => void
-  onWechatLegacy: () => void
-}) {
-  return (
-    <section className="empty-library" aria-labelledby="empty-title">
-      <div className="empty-heading">
-        <span className="empty-icon">
-          <Images size={26} weight="light" />
-        </span>
-        <h2 id="empty-title">建立你的贴纸库</h2>
-        <p>选择图片或文件夹。文件会复制到应用管理的本地素材库，原位置移动后仍然可用。</p>
-      </div>
-      <div className="source-grid">
-        <article className="source-panel primary-source">
-          <div>
-            <UploadSimple size={24} weight="light" />
-            <h3>从本地图片导入</h3>
-            <p>支持 PNG、JPEG、WebP 和 GIF。重复文件会自动跳过。</p>
-          </div>
-          <div className="button-row">
-            <button className="primary-button" type="button" onClick={() => onImport('files')}>
-              <Plus size={16} weight="bold" /> 选择图片
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => onImport('directory')}
-            >
-              <FolderOpen size={16} /> 选择文件夹
-            </button>
-          </div>
-        </article>
-        <article className="source-panel legacy-source">
-          <div>
-            <WechatLogo size={24} weight="light" />
-            <h3>从微信提取</h3>
-            <p>支持微信 4.x 收藏表情；旧版微信仍可使用本机索引导入。</p>
-          </div>
-          <div className="button-row">
-            <button className="primary-button" type="button" onClick={onWechat4}>
-              <WechatLogo size={16} /> 微信 4.x
-            </button>
-            <button className="secondary-button" type="button" onClick={onWechatLegacy}>
-              检测旧版
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
-  )
-}
-
-function LoadingLibrary() {
-  return (
-    <div className="loading-grid" aria-label="正在加载收藏">
-      {Array.from({ length: 8 }, (_, index) => (
-        <span key={index} />
-      ))}
-    </div>
-  )
+function toPreparedPacks(summary: PrepareExportSummary | null): PreparedPackView[] {
+  if (!summary || summary.destination !== 'whatsapp') return []
+  return summary.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    publisher: summary.publisher ?? '',
+    mediaKind: group.mediaKind === 'animated' ? 'animated' : 'static',
+    stickers: group.items.map((item) => ({
+      assetId: item.assetId,
+      sizeBytes: item.sizeBytes,
+      durationMs: item.durationMs,
+      animationTimingAdjusted: item.animationTimingAdjusted,
+      droppedFrameCount: item.droppedFrameCount,
+    })),
+    traySizeBytes: 0,
+    assetFailures: summary.assetFailures.filter((failure) =>
+      group.assetIds.includes(failure.assetId),
+    ),
+    status: group.status,
+    error: group.error,
+  }))
 }
 
 export function App() {
+  const [page, setPage] = useState<AppPage>('export')
   const [collection, setCollection] = useState<CollectionView | null>(null)
+  const [task, setTask] = useState<ExportTask | null>(null)
+  const taskRef = useRef<ExportTask | null>(null)
+  const saveQueue = useRef(Promise.resolve())
+  const [snapshots, setSnapshots] = useState<PreparedSnapshotSummary[]>([])
+  const [snapshotPreview, setSnapshotPreview] = useState<PreparedSnapshotView | null>(null)
+  const [prepared, setPrepared] = useState<PrepareExportSummary | null>(null)
+  const [whatsApp, setWhatsApp] = useState<WhatsAppConnectionView | null>(null)
   const [loading, setLoading] = useState(true)
-  const [importing, setImporting] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [failures, setFailures] = useState<ImportFailure[]>([])
-  const [importNotice, setImportNotice] = useState<ImportNotice | null>(null)
-  const [packSettings, setPackSettings] = useState<PackSettings | null>(null)
-  const [packSizeInput, setPackSizeInput] = useState('30')
-  const [preparedPacks, setPreparedPacks] = useState<PreparedPackView[]>([])
-  const [preparing, setPreparing] = useState(false)
-  const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
-  const [prepareNotice, setPrepareNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [wechat4PanelOpen, setWechat4PanelOpen] = useState(false)
-  const [legacyPanelOpen, setLegacyPanelOpen] = useState(false)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-  const importNoticeId = importNotice?.id
+  const [wechat4Open, setWechat4Open] = useState(false)
+  const [legacyOpen, setLegacyOpen] = useState(false)
 
   useEffect(() => {
     const api = window.stickerApp
@@ -200,654 +95,1129 @@ export function App() {
       setLoading(false)
       return
     }
-
-    const unsubscribe = api.onImportProgress(setProgress)
-    const unsubscribePrepare = api.onPrepareProgress(setPrepareProgress)
-    api
-      .getCollection()
-      .then((value) => {
-        setCollection(value)
-        setPackSettings({
-          title: value.title,
-          publisher: value.publisher,
-          packSize: value.packSize,
-        })
-        setPackSizeInput(String(value.packSize))
+    const unsubscribeImport = api.onImportProgress(setProgress)
+    const unsubscribeStatus = api.onWhatsAppStatus(setWhatsApp)
+    Promise.all([
+      api.getCollection(),
+      api.getExportTask(),
+      api.listPreparedSnapshots(),
+      api.getWhatsAppStatus(),
+    ])
+      .then(([nextCollection, nextTask, nextSnapshots, status]) => {
+        setCollection(nextCollection)
+        taskRef.current = nextTask
+        setTask(nextTask)
+        setSnapshots(nextSnapshots)
+        setWhatsApp(status)
       })
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : String(reason)),
-      )
+      .catch(showError)
       .finally(() => setLoading(false))
     return () => {
-      unsubscribe()
-      unsubscribePrepare()
+      unsubscribeImport()
+      unsubscribeStatus()
     }
   }, [])
 
-  useEffect(() => {
-    if (importNoticeId === undefined) return
+  function showError(reason: unknown) {
+    setError(reason instanceof Error ? reason.message : String(reason))
+  }
 
-    const fadeTimer = window.setTimeout(() => {
-      setImportNotice((notice) =>
-        notice?.id === importNoticeId ? { ...notice, dismissing: true } : notice,
-      )
-    }, 4500)
-    const removeTimer = window.setTimeout(() => {
-      setImportNotice((notice) => (notice?.id === importNoticeId ? null : notice))
-    }, 5000)
+  function updateTask(patch: Partial<ExportTaskDraft>) {
+    const current = taskRef.current
+    const api = window.stickerApp
+    if (!current || !api) return
+    const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
+    taskRef.current = next
+    setTask(next)
+    setPrepared(null)
+    saveQueue.current = saveQueue.current
+      .then(async () => {
+        const latest = taskRef.current
+        if (!latest) return
+        const saved = await api.saveExportTask(draftFromTask(latest))
+        if (taskRef.current === latest) {
+          taskRef.current = saved
+          setTask(saved)
+        }
+      })
+      .catch(showError)
+  }
 
-    return () => {
-      window.clearTimeout(fadeTimer)
-      window.clearTimeout(removeTimer)
-    }
-  }, [importNoticeId])
-
-  const selected = useMemo(() => new Set(collection?.selectedAssetIds ?? []), [collection])
-  const parsedPackSize = parsePackSizeInput(packSizeInput)
-  const packPlan = useMemo(
-    () =>
-      collection && packSettings && parsedPackSize !== null
-        ? planStickerPacks({ ...collection, packSize: parsedPackSize })
-        : { packs: [], warnings: [] },
-    [collection, packSettings, parsedPackSize],
-  )
-  const packPlanSignature = `${packSettings?.title}|${packSettings?.publisher}|${packPlan.packs
-    .map((pack) => pack.id)
-    .join('|')}`
-
-  useEffect(() => {
-    setPreparedPacks([])
-    setPrepareNotice(null)
-  }, [packPlanSignature])
+  function moveToStep(step: ExportTask['currentStep']) {
+    updateTask({ currentStep: step })
+  }
 
   async function importAssets(mode: ImportMode) {
     const api = window.stickerApp
-    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    setImporting(true)
-    setFailures([])
+    if (!api) return
+    setBusy(true)
     setError(null)
+    setFailures([])
     try {
-      const result = await api.importAssets(mode)
-      applyImportSummary(result)
+      applyImportSummary(await api.importAssets(mode), 'local')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      showError(reason)
     } finally {
-      setImporting(false)
+      setBusy(false)
       setProgress(null)
     }
   }
 
-  function applyImportSummary(result: ImportSummary) {
+  function applyImportSummary(result: ImportSummary, sourceKind?: 'local' | 'wechat') {
     setCollection(result.collection)
     setFailures(result.failures)
-    if (!result.canceled) {
-      setImportNotice({
-        id: Date.now(),
-        kind: 'complete',
-        imported: result.imported,
-        duplicates: result.duplicates,
-        failed: result.failures.length,
-        dismissing: false,
-      })
-    }
-  }
-
-  function showWechatImportStopped() {
-    setImportNotice({
-      id: Date.now(),
-      kind: 'stopped',
-      imported: 0,
-      duplicates: 0,
-      failed: 0,
-      dismissing: false,
+    if (result.canceled) return
+    const previousIds = new Set(collection?.assets.map((asset) => asset.id) ?? [])
+    const importedIds = result.collection.assets
+      .filter((asset) => !previousIds.has(asset.id))
+      .map((asset) => asset.id)
+    const latestSource = result.collection.assets
+      .flatMap((asset) => asset.sources)
+      .filter((source) =>
+        sourceKind === 'local' ? source.kind === 'local' : source.kind.startsWith('wechat'),
+      )
+      .sort((left, right) => right.importedAt.localeCompare(left.importedAt))[0]
+    const source =
+      sourceKind === 'local'
+        ? {
+            kind: 'local' as const,
+            label: latestSource?.label ?? '本机导入',
+            importBatchId: latestSource?.importBatchId,
+          }
+        : latestSource?.accountId
+          ? {
+              kind:
+                latestSource.kind === 'wechat4' ? ('wechat4' as const) : ('wechat-legacy' as const),
+              label: latestSource.label,
+              sourceAccountId: latestSource.accountId,
+            }
+          : { kind: 'library' as const, label: '我的表情库' }
+    updateTask({
+      source,
+      selectedAssetIds: importedIds,
+      orderedAssetIds: importedIds,
+      currentStep: 2,
     })
+    setNotice(
+      `已导入 ${result.imported} 张，跳过 ${result.duplicates} 张重复素材。新内容已保存到我的表情库。`,
+    )
   }
 
-  async function persistSelection(nextIds: string[]) {
-    if (!collection) return
+  async function chooseLocalDestination() {
+    const choice = await window.stickerApp?.chooseExportDirectory()
+    if (!choice) return
+    updateTask({ destination: choice, currentStep: 3 })
+  }
+
+  async function prepareTask() {
     const api = window.stickerApp
-    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    setCollection({ ...collection, selectedAssetIds: nextIds })
-    try {
-      setCollection(await api.setSelection(nextIds))
-    } catch (reason) {
-      setCollection(collection)
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }
-
-  function toggleAsset(id: string) {
-    const next = new Set(selected)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    void persistSelection([...next])
-  }
-
-  async function handleDragEnd(event: DragEndEvent) {
-    if (!collection || !event.over || event.active.id === event.over.id) return
-    const api = window.stickerApp
-    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    const oldIndex = collection.assets.findIndex((asset) => asset.id === event.active.id)
-    const newIndex = collection.assets.findIndex((asset) => asset.id === event.over?.id)
-    const reordered = arrayMove(collection.assets, oldIndex, newIndex)
-    setCollection({ ...collection, assets: reordered })
-    try {
-      setCollection(await api.reorderAssets(reordered.map((asset) => asset.id)))
-    } catch (reason) {
-      setCollection(collection)
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }
-
-  async function removeSelected() {
-    if (!collection || selected.size === 0) return
-    const api = window.stickerApp
-    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    if (!window.confirm(`从当前收藏中移除选中的 ${selected.size} 张图片？原始来源文件不会修改。`))
-      return
-    try {
-      setCollection(await api.removeAssets([...selected]))
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }
-
-  function validatePackSettings(): string | null {
-    if (!packSettings?.title.trim()) return '请输入贴纸包名称。'
-    if (packSettings.title.length > 128) return '贴纸包名称不能超过 128 个字符。'
-    if (!packSettings.publisher.trim()) return '请输入发布者名称。'
-    if (packSettings.publisher.length > 128) return '发布者名称不能超过 128 个字符。'
-    if (parsedPackSize === null) return '每包数量必须是 3–30 之间的整数。'
-    return null
-  }
-
-  async function persistPackSettings(): Promise<CollectionView | null> {
-    if (!packSettings || !collection) return null
-    const validationError = validatePackSettings()
-    if (validationError) {
-      setError(validationError)
-      if (parsedPackSize === null) setPackSizeInput(String(packSettings.packSize))
-      return null
-    }
-    const api = window.stickerApp
-    if (!api) {
-      setError('桌面桥接不可用，请重新打开应用。')
-      return null
-    }
-    try {
-      const updated = await api.updatePackSettings({ ...packSettings, packSize: parsedPackSize! })
-      setCollection(updated)
-      setPackSettings({
-        title: updated.title,
-        publisher: updated.publisher,
-        packSize: updated.packSize,
-      })
-      setPackSizeInput(String(updated.packSize))
-      setError(null)
-      return updated
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-      return null
-    }
-  }
-
-  async function preparePacks() {
-    const api = window.stickerApp
-    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    if (!(await persistPackSettings())) return
-    setPreparing(true)
-    setPrepareProgress(null)
-    setPrepareNotice(null)
+    if (!api) return
+    setBusy(true)
     setError(null)
     try {
-      const result = await api.preparePacks()
-      setPreparedPacks(result.packs)
-      const failedAssets = result.packs.reduce(
-        (count, pack) => count + pack.assetFailures.length,
-        0,
-      )
-      const messages: string[] = []
-      if (result.animationRepairs.length > 0) {
-        const droppedFrames = result.animationRepairs.reduce(
-          (count, repair) => count + repair.droppedFrameCount,
-          0,
-        )
-        messages.push(
-          `已自动规范化 ${result.animationRepairs.length} 张动图的短帧${droppedFrames ? `，并合并 ${droppedFrames} 个不可感知帧` : ''}`,
-        )
+      const result = await api.prepareExportTask()
+      setPrepared(result)
+      const refreshed = await api.getExportTask()
+      taskRef.current = refreshed
+      setTask(refreshed)
+      if (result.animationRepairs.length) {
+        setNotice(`已自动规范化 ${result.animationRepairs.length} 张动图的短帧，其余素材不受影响。`)
       }
-      if (failedAssets > 0) messages.push(`${failedAssets} 张异常素材未能转换，其他素材仍可继续`)
-      setPrepareNotice(messages.length > 0 ? `${messages.join('；')}。` : null)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      showError(reason)
     } finally {
-      setPreparing(false)
-      setPrepareProgress(null)
+      setBusy(false)
     }
   }
 
-  const allSelected =
-    Boolean(collection?.assets.length) && selected.size === collection?.assets.length
+  async function saveSnapshot(forceDuplicate = false) {
+    const api = window.stickerApp
+    if (!api) return
+    setBusy(true)
+    try {
+      const result = await api.savePreparedSnapshot(forceDuplicate)
+      if (result.kind === 'duplicate' && !forceDuplicate) {
+        const saveCopy = window.confirm(
+          '已有内容、顺序和配置完全相同的已保存版本。是否仍另存为副本？',
+        )
+        if (saveCopy) return void saveSnapshot(true)
+        setNotice('已打开相同的已保存版本。')
+      } else {
+        setNotice('已保留本次准备结果，可在以后预览或再次传输。')
+      }
+      setSnapshots(await api.listPreparedSnapshots())
+      const refreshed = await api.getExportTask()
+      taskRef.current = refreshed
+      setTask(refreshed)
+    } catch (reason) {
+      showError(reason)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteSnapshot(id: string) {
+    if (!window.confirm('删除这个已保存的传输结果？我的表情库素材不会删除。')) return
+    try {
+      await window.stickerApp?.deletePreparedSnapshot(id)
+      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== id))
+    } catch (reason) {
+      showError(reason)
+    }
+  }
+
+  async function openSnapshot(id: string) {
+    try {
+      const snapshot = await window.stickerApp?.getPreparedSnapshot(id)
+      if (snapshot) setSnapshotPreview(snapshot)
+    } catch (reason) {
+      showError(reason)
+    }
+  }
+
+  async function transferLocal() {
+    const api = window.stickerApp
+    if (!api) return
+    if (!window.confirm('确认开始导出到所选本地文件夹？应用会创建新的导出批次，不会覆盖原素材。'))
+      return
+    setBusy(true)
+    try {
+      const result = await api.transferLocalExport()
+      setNotice(
+        `已导出 ${result.assetCount} 张素材到“${result.directoryLabel}”，共 ${result.groupCount} 个文件夹分组。`,
+      )
+      const refreshed = await api.getExportTask()
+      taskRef.current = refreshed
+      setTask(refreshed)
+    } catch (reason) {
+      showError(reason)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeAssets(ids: string[]) {
+    const api = window.stickerApp
+    if (!api || !ids.length) return
+    if (
+      !window.confirm(`从我的表情库删除所选 ${ids.length} 张素材？已保存的传输结果仍保留独立副本。`)
+    )
+      return
+    try {
+      const next = await api.removeAssets(ids)
+      setCollection(next)
+      const refreshed = await api.getExportTask()
+      taskRef.current = refreshed
+      setTask(refreshed)
+    } catch (reason) {
+      showError(reason)
+    }
+  }
+
+  const content =
+    loading || !collection || !task ? (
+      <div className="product-loading">正在恢复我的表情库与导出任务…</div>
+    ) : page === 'export' ? (
+      <ExportPage
+        collection={collection}
+        task={task}
+        prepared={prepared}
+        snapshots={snapshots}
+        whatsApp={whatsApp}
+        busy={busy}
+        progress={progress}
+        failures={failures}
+        onTask={updateTask}
+        onStep={moveToStep}
+        onLocalImport={importAssets}
+        onWechat4={() => {
+          setLegacyOpen(false)
+          setWechat4Open(true)
+        }}
+        onLegacy={() => {
+          setWechat4Open(false)
+          setLegacyOpen(true)
+        }}
+        onChooseLocalDestination={chooseLocalDestination}
+        onPrepare={prepareTask}
+        onSaveSnapshot={saveSnapshot}
+        onTransferLocal={transferLocal}
+        onDeleteSnapshot={deleteSnapshot}
+        onOpenSnapshot={openSnapshot}
+        onError={setError}
+        onWhatsAppStatus={setWhatsApp}
+        onRefreshTask={() => {
+          void window.stickerApp?.getExportTask().then((refreshed) => {
+            taskRef.current = refreshed
+            setTask(refreshed)
+          })
+        }}
+      />
+    ) : page === 'library' ? (
+      <LibraryPage
+        collection={collection}
+        onSelection={async (ids) => setCollection(await window.stickerApp!.setSelection(ids))}
+        onOrder={async (ids) => setCollection(await window.stickerApp!.reorderAssets(ids))}
+        onDelete={removeAssets}
+        onLocalImport={importAssets}
+        onWechat4={() => setWechat4Open(true)}
+      />
+    ) : page === 'connections' ? (
+      <ConnectionsPage
+        onError={setError}
+        onStatus={setWhatsApp}
+        onWechat4={() => setWechat4Open(true)}
+      />
+    ) : page === 'settings' ? (
+      <SettingsPage task={task} onChooseDirectory={chooseLocalDestination} />
+    ) : (
+      <AboutPage />
+    )
 
   return (
-    <div className="app-shell">
-      <div className="window-drag-region" aria-hidden="true" />
-      <aside className="sidebar">
-        <div className="brand" aria-label="CN Memes Abroad">
-          <span>贴</span>
-          <strong>Memes Abroad</strong>
-        </div>
-        <nav aria-label="主导航">
-          <button className="nav-item is-active" type="button">
-            <SquaresFour size={18} /> 贴纸库
-          </button>
-          <button
-            className="nav-item"
-            type="button"
-            disabled={packPlan.packs.length === 0}
-            onClick={() =>
-              document
-                .getElementById('whatsapp-panel-title')
-                ?.scrollIntoView({ behavior: 'smooth' })
-            }
-          >
-            <UploadSimple size={18} /> 发送到 WhatsApp
-          </button>
-          <button className="nav-item" type="button" disabled>
-            <GearSix size={18} /> 设置
-          </button>
-        </nav>
-        <div className="sidebar-note">
-          <Info size={16} />
-          <span>所有图片和收藏数据仅保存在本机。</span>
-        </div>
-      </aside>
-
-      <main className="main-content">
-        <header className="page-header">
-          <div>
-            <p className="section-label">本地收藏</p>
-            <h1>{collection?.title ?? '贴纸库'}</h1>
-            <p>导入、选择和调整顺序，然后预览并准备 WhatsApp 贴纸包。</p>
-          </div>
-          {Boolean(collection?.assets.length) && (
-            <div className="header-actions">
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => {
-                  setLegacyPanelOpen(false)
-                  setWechat4PanelOpen(true)
-                }}
-              >
-                <WechatLogo size={16} /> 微信收藏
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  setWechat4PanelOpen(false)
-                  setLegacyPanelOpen(true)
-                }}
-              >
-                微信旧版
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => importAssets('directory')}
-                disabled={importing}
-              >
-                <FolderOpen size={16} /> 文件夹
-              </button>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => importAssets('files')}
-                disabled={importing}
-              >
-                <Plus size={16} weight="bold" /> 导入图片
-              </button>
-            </div>
-          )}
-        </header>
-
-        {error && (
-          <div className="error-banner" role="alert">
-            <X size={18} weight="bold" />
-            <span>{error}</span>
-            <button type="button" onClick={() => setError(null)} aria-label="关闭错误提示">
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {wechat4PanelOpen && (
-          <Wechat4Panel
-            onClose={() => setWechat4PanelOpen(false)}
-            onImported={applyImportSummary}
-            onStopped={showWechatImportStopped}
-          />
-        )}
-
-        {legacyPanelOpen && (
-          <WechatLegacyPanel
-            onClose={() => setLegacyPanelOpen(false)}
-            onImported={applyImportSummary}
-            onStopped={showWechatImportStopped}
-          />
-        )}
-
-        {importing && (
-          <section className="import-status" aria-live="polite">
-            <div>
-              <strong>正在导入</strong>
-              <span>
-                {progress ? `${progress.completed} / ${progress.total}` : '正在读取所选文件'}
-              </span>
-            </div>
-            <div className="progress-line">
-              <span
-                style={{
-                  width: progress?.total ? `${(progress.completed / progress.total) * 100}%` : '8%',
-                }}
-              />
-            </div>
-          </section>
-        )}
-
-        {failures.length > 0 && (
-          <section className="failure-panel" aria-labelledby="failure-title">
-            <div>
-              <h2 id="failure-title">有 {failures.length} 个文件未导入</h2>
-              <p>已成功导入的图片不会回滚。</p>
-            </div>
-            <ul>
-              {failures.slice(0, 5).map((failure) => (
-                <li key={failure.path}>
-                  <strong>{failure.path.split('/').pop()}</strong>
-                  <span>{failure.reason}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {loading ? (
-          <LoadingLibrary />
-        ) : collection && collection.assets.length > 0 ? (
-          <section className="library-content" aria-label="贴纸收藏">
-            <div className="collection-summary">
-              <div>
-                <strong>{collection.assets.length}</strong>
-                <span>图片</span>
-              </div>
-              <div>
-                <strong>{selected.size}</strong>
-                <span>已选择</span>
-              </div>
-              <div>
-                <strong>{collection.assets.filter((asset) => asset.animated).length}</strong>
-                <span>动图</span>
-              </div>
-              <p>拖动图片右上角的手柄即可调整发送顺序。</p>
-            </div>
-            {packSettings && (
-              <section className="pack-builder" aria-labelledby="pack-builder-title">
-                <div className="pack-builder-heading">
-                  <div>
-                    <p className="section-label">发送前准备</p>
-                    <h2 id="pack-builder-title">WhatsApp 分包预览</h2>
-                    <p className="pack-builder-description">
-                      静态与动态贴纸会自动分开；每包 3–30 张，并保持你的选择顺序。
-                    </p>
-                    <p className="pack-builder-policy">
-                      WhatsApp 官方要求：一个贴纸包必须全部为静态或全部为动态，不能混合。
-                    </p>
-                  </div>
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={
-                      preparing || packPlan.packs.length === 0 || Boolean(validatePackSettings())
-                    }
-                    onClick={preparePacks}
-                  >
-                    <UploadSimple size={16} />
-                    {preparing
-                      ? `转换 ${prepareProgress?.completed ?? 0}/${prepareProgress?.total ?? selected.size}`
-                      : `准备 ${packPlan.packs.length} 个包`}
-                  </button>
-                </div>
-                {preparing && (
-                  <div className="prepare-progress" aria-live="polite">
-                    <div>
-                      <span>
-                        第 {prepareProgress?.packIndex ?? 1}/
-                        {prepareProgress?.packCount ?? packPlan.packs.length} 包
-                      </span>
-                      <span title={prepareProgress?.currentName}>
-                        {prepareProgress?.currentName ?? '正在初始化转换'}
-                      </span>
-                    </div>
-                    <div className="progress-line">
-                      <span
-                        style={{
-                          width: prepareProgress?.total
-                            ? `${(prepareProgress.completed / prepareProgress.total) * 100}%`
-                            : '2%',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="pack-settings">
-                  <label>
-                    <span>贴纸包名称</span>
-                    <input
-                      value={packSettings.title}
-                      maxLength={128}
-                      onChange={(event) =>
-                        setPackSettings({ ...packSettings, title: event.target.value })
-                      }
-                      onBlur={() => void persistPackSettings()}
-                    />
-                  </label>
-                  <label>
-                    <span>发布者</span>
-                    <input
-                      value={packSettings.publisher}
-                      maxLength={128}
-                      onChange={(event) =>
-                        setPackSettings({ ...packSettings, publisher: event.target.value })
-                      }
-                      onBlur={() => void persistPackSettings()}
-                    />
-                  </label>
-                  <label className="pack-size-field">
-                    <span>每包数量</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={2}
-                      value={packSizeInput}
-                      aria-invalid={parsedPackSize === null}
-                      onChange={(event) => {
-                        const digits = event.target.value.replace(/\D/g, '').slice(0, 2)
-                        setPackSizeInput(digits.replace(/^0+(?=\d)/, ''))
-                      }}
-                      onBlur={() => void persistPackSettings()}
-                    />
-                  </label>
-                </div>
-                {packPlan.warnings.length > 0 && (
-                  <div className="pack-warnings" role="status">
-                    {packPlan.warnings.map((warning) => (
-                      <p key={warning.mediaKind}>{warning.message}</p>
-                    ))}
-                  </div>
-                )}
-                {prepareNotice && (
-                  <p className="pack-repair-notice" role="status">
-                    {prepareNotice}
-                  </p>
-                )}
-                {packPlan.packs.length > 0 ? (
-                  <div className="pack-preview-list">
-                    {packPlan.packs.map((pack, index) => {
-                      const prepared =
-                        preparedPacks.find((item) => item.id === pack.id) ?? preparedPacks[index]
-                      return (
-                        <article className="pack-preview-card" key={pack.id}>
-                          <div className="pack-thumbnails" aria-hidden="true">
-                            {pack.assetIds.slice(0, 4).map((assetId) => {
-                              const asset = collection.assets.find((item) => item.id === assetId)
-                              return asset ? (
-                                <img key={asset.id} src={asset.previewUrl} alt="" />
-                              ) : null
-                            })}
-                          </div>
-                          <div className="pack-preview-copy">
-                            <div>
-                              <strong>
-                                {packSettings.title}
-                                {packPlan.packs.length > 1 ? ` ${index + 1}` : ''}
-                              </strong>
-                              <span className={`pack-kind ${pack.mediaKind}`}>
-                                {pack.mediaKind === 'animated' ? '动态' : '静态'}
-                              </span>
-                            </div>
-                            <p>
-                              {pack.assetIds.length} 张 · 第 {index + 1} 包
-                            </p>
-                          </div>
-                          <span className={`pack-status ${prepared?.status ?? 'draft'}`}>
-                            {prepared?.status === 'prepared'
-                              ? '已准备'
-                              : prepared?.status === 'failed'
-                                ? '转换失败'
-                                : '待准备'}
-                          </span>
-                          {prepared?.error && <p className="pack-error">{prepared.error}</p>}
-                          {!prepared?.error && Boolean(prepared?.assetFailures.length) && (
-                            <p className="pack-error is-warning">
-                              {prepared!.assetFailures.length} 张无法转换；本包其余素材仍可发送
-                            </p>
-                          )}
-                        </article>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="pack-empty-hint">选择至少 3 张同类型图片后即可生成贴纸包。</p>
-                )}
-              </section>
-            )}
-            {packPlan.packs.length > 0 && (
-              <WhatsAppSendPanel
-                key={packPlanSignature}
-                expectedPackCount={packPlan.packs.length}
-                preparedPacks={preparedPacks}
-                onError={setError}
-              />
-            )}
-            <div className="selection-toolbar">
-              <div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    persistSelection(allSelected ? [] : collection.assets.map((asset) => asset.id))
-                  }
-                >
-                  <CheckSquare size={17} /> {allSelected ? '取消全选' : '全选'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    persistSelection(
-                      collection.assets
-                        .filter((asset) => !selected.has(asset.id))
-                        .map((asset) => asset.id),
-                    )
-                  }
-                >
-                  反选
-                </button>
-              </div>
-              <button
-                className="danger-button"
-                type="button"
-                onClick={removeSelected}
-                disabled={selected.size === 0}
-              >
-                <Trash size={17} /> 移除所选
-              </button>
-            </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={collection.assets.map((asset) => asset.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div className="sticker-grid">
-                  {collection.assets.map((asset) => (
-                    <SortableSticker
-                      key={asset.id}
-                      asset={asset}
-                      selected={selected.has(asset.id)}
-                      selectionIndex={collection.selectedAssetIds.indexOf(asset.id)}
-                      onToggle={() => toggleAsset(asset.id)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          </section>
-        ) : (
-          <EmptyLibrary
-            onImport={importAssets}
-            onWechat4={() => {
-              setLegacyPanelOpen(false)
-              setWechat4PanelOpen(true)
-            }}
-            onWechatLegacy={() => {
-              setWechat4PanelOpen(false)
-              setLegacyPanelOpen(true)
-            }}
-          />
-        )}
-      </main>
-      {importNotice && (
-        <aside
-          className={`import-notice${importNotice.kind === 'stopped' ? ' is-stopped' : ''}${importNotice.dismissing ? ' is-dismissing' : ''}`}
-          aria-live="polite"
-          aria-label={importNotice.kind === 'stopped' ? '导入已停止' : '导入结果'}
-        >
-          {importNotice.kind === 'stopped' ? (
-            <Info size={20} weight="fill" />
-          ) : (
-            <CheckCircle size={20} weight="fill" />
-          )}
-          <div>
-            <strong>{importNotice.kind === 'stopped' ? '下载已停止' : '导入完成'}</strong>
-            {importNotice.kind === 'stopped' ? (
-              <p>本次临时文件将自动清理，未完成内容不会加入素材库。</p>
-            ) : (
-              <p>
-                新增 {importNotice.imported} · 重复 {importNotice.duplicates} · 失败{' '}
-                {importNotice.failed}
-              </p>
-            )}
-          </div>
-          <button type="button" onClick={() => setImportNotice(null)} aria-label="关闭导入结果">
+    <AppShell
+      page={page}
+      onNavigate={setPage}
+      rail={
+        page === 'export' && task ? <WorkflowRail task={task} onStep={moveToStep} /> : undefined
+      }
+    >
+      {error && (
+        <div className="product-banner error" role="alert">
+          <WarningCircle size={18} />
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} aria-label="关闭错误">
             <X size={16} />
           </button>
-        </aside>
+        </div>
       )}
+      {notice && (
+        <div className="product-banner notice" role="status">
+          <CheckCircle size={18} />
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="关闭提示">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {wechat4Open && (
+        <Wechat4Panel
+          onClose={() => setWechat4Open(false)}
+          onImported={(result) => applyImportSummary(result, 'wechat')}
+          onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+        />
+      )}
+      {legacyOpen && (
+        <WechatLegacyPanel
+          onClose={() => setLegacyOpen(false)}
+          onImported={(result) => applyImportSummary(result, 'wechat')}
+          onStopped={() => setNotice('已停止微信旧版导入。')}
+        />
+      )}
+      {snapshotPreview && (
+        <SnapshotPreviewDialog
+          snapshot={snapshotPreview}
+          onClose={() => setSnapshotPreview(null)}
+        />
+      )}
+      {content}
+    </AppShell>
+  )
+}
+
+interface ExportPageProps {
+  collection: CollectionView
+  task: ExportTask
+  prepared: PrepareExportSummary | null
+  snapshots: PreparedSnapshotSummary[]
+  whatsApp: WhatsAppConnectionView | null
+  busy: boolean
+  progress: ImportProgress | null
+  failures: ImportFailure[]
+  onTask(patch: Partial<ExportTaskDraft>): void
+  onStep(step: ExportTask['currentStep']): void
+  onLocalImport(mode: ImportMode): void
+  onWechat4(): void
+  onLegacy(): void
+  onChooseLocalDestination(): void
+  onPrepare(): void
+  onSaveSnapshot(forceDuplicate?: boolean): void
+  onTransferLocal(): void
+  onDeleteSnapshot(id: string): void
+  onOpenSnapshot(id: string): void
+  onError(message: string): void
+  onWhatsAppStatus(status: WhatsAppConnectionView): void
+  onRefreshTask(): void
+}
+
+function ExportPage(props: ExportPageProps) {
+  const { task } = props
+  if (task.currentStep === 1) return <SourceStep {...props} />
+  if (task.currentStep === 2) return <DestinationStep {...props} />
+  if (task.currentStep === 3) return <PickerStep {...props} />
+  return <TransferStep {...props} />
+}
+
+function StepHeading({
+  title,
+  description,
+  aside,
+}: {
+  title: string
+  description: string
+  aside?: React.ReactNode
+}) {
+  return (
+    <header className="workspace-heading">
+      <div>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      {aside}
+    </header>
+  )
+}
+
+function SourceStep(props: ExportPageProps) {
+  return (
+    <div className="workflow-workspace">
+      <StepHeading
+        title="选择表情"
+        description="选择这次传输的素材来源。新导入的内容会安全保存到我的表情库。"
+      />
+      <div className="choice-list">
+        <section className="choice-row is-featured">
+          <span className="destination-icon wechat">
+            <WechatLogo size={34} weight="fill" />
+          </span>
+          <div>
+            <h3>从微信导入</h3>
+            <p>选择脱敏账号并导入收藏表情</p>
+            <small>需要明确授权。不会修改原微信。</small>
+          </div>
+          <div className="choice-actions">
+            <button className="primary-button" type="button" onClick={props.onWechat4}>
+              选择微信
+            </button>
+            <button className="text-button" type="button" onClick={props.onLegacy}>
+              旧版微信
+            </button>
+          </div>
+        </section>
+        <section className="choice-row">
+          <span className="destination-icon">
+            <FolderOpen size={32} />
+          </span>
+          <div>
+            <h3>从本机导入</h3>
+            <p>选择单张、多张图片或整个文件夹</p>
+          </div>
+          <div className="choice-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={props.busy}
+              onClick={() => props.onLocalImport('files')}
+            >
+              选择图片
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              disabled={props.busy}
+              onClick={() => props.onLocalImport('directory')}
+            >
+              选择文件夹
+            </button>
+          </div>
+        </section>
+        <button
+          className="choice-row choice-button"
+          type="button"
+          onClick={() =>
+            props.onTask({ source: { kind: 'library', label: '我的表情库' }, currentStep: 2 })
+          }
+        >
+          <span className="destination-icon">
+            <Images size={32} />
+          </span>
+          <span>
+            <strong>使用我的表情库</strong>
+            <small>不重新导入，直接挑选已有素材</small>
+          </span>
+          <ArrowRight size={20} />
+        </button>
+      </div>
+      {props.progress && (
+        <div className="compact-progress">
+          正在导入 {props.progress.completed} / {props.progress.total}
+        </div>
+      )}
+      {props.failures.length > 0 && (
+        <p className="inline-note warning">
+          有 {props.failures.length} 个文件未导入，成功素材已保留。
+        </p>
+      )}
+      <p className="privacy-line">
+        <ShieldCheck size={17} />
+        仅在你确认后读取本机微信数据。所有图片与数据库都在本机处理。
+      </p>
+    </div>
+  )
+}
+
+function DestinationStep(props: ExportPageProps) {
+  const connected = props.whatsApp?.phase === 'connected'
+  return (
+    <div className="workflow-workspace">
+      <StepHeading
+        title="选择目的地"
+        description="目的地是必选项。只有 WhatsApp 需要先建立连接。"
+      />
+      <div className="choice-list">
+        <section
+          className={`choice-row${props.task.destination?.kind === 'whatsapp' ? ' is-selected' : ''}`}
+        >
+          <span className="destination-icon whatsapp">
+            <WhatsappLogo size={34} />
+          </span>
+          <div>
+            <h3>WhatsApp</h3>
+            <p>
+              {connected
+                ? '已连接，可以准备并发送原生贴纸包'
+                : `${connectionLabel(props.whatsApp?.phase ?? 'disconnected')}，可在这里完成关联`}
+            </p>
+          </div>
+          <button
+            className={connected ? 'primary-button' : 'secondary-button'}
+            type="button"
+            onClick={() =>
+              props.onTask({ destination: { kind: 'whatsapp' }, currentStep: connected ? 3 : 2 })
+            }
+          >
+            {connected ? '选择' : '连接并选择'}
+          </button>
+        </section>
+        {!connected && props.task.destination?.kind === 'whatsapp' && (
+          <WhatsAppConnectionPanel
+            compact
+            onStatus={props.onWhatsAppStatus}
+            onError={props.onError}
+          />
+        )}
+        <button
+          className={`choice-row choice-button${props.task.destination?.kind === 'local-folder' ? ' is-selected' : ''}`}
+          type="button"
+          onClick={props.onChooseLocalDestination}
+        >
+          <span className="destination-icon">
+            <FolderOpen size={32} />
+          </span>
+          <span>
+            <strong>导出到本地文件夹</strong>
+            <small>
+              {props.task.destination?.kind === 'local-folder' &&
+              props.task.destination.directoryLabel
+                ? props.task.destination.directoryLabel
+                : '复制或转换后保存到你选择的位置'}
+            </small>
+          </span>
+          <ArrowRight size={20} />
+        </button>
+        <section className="choice-row is-disabled">
+          <span className="destination-icon">
+            <Link size={30} />
+          </span>
+          <div>
+            <h3>更多 App 即将支持</h3>
+            <p>目前可先导出到本地文件夹，再手动添加。</p>
+          </div>
+        </section>
+      </div>
+      {connected && props.task.destination?.kind === 'whatsapp' && (
+        <div className="workspace-footer">
+          <span>WhatsApp 已连接</span>
+          <button className="primary-button" type="button" onClick={() => props.onStep(3)}>
+            下一步
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PickerStep(props: ExportPageProps) {
+  const animated = props.collection.assets.filter(
+    (asset) => props.task.selectedAssetIds.includes(asset.id) && asset.animated,
+  ).length
+  return (
+    <div className="workflow-workspace picker-workspace">
+      <StepHeading
+        title="挑选表情"
+        description={`我的表情库共有 ${props.collection.assets.length} 张素材。本次选择不会改变素材库的管理选择或全局顺序。`}
+        aside={
+          <strong className="heading-count">已选择 {props.task.selectedAssetIds.length} 张</strong>
+        }
+      />
+      <StickerPicker
+        assets={props.collection.assets}
+        selectedIds={props.task.selectedAssetIds}
+        orderedIds={props.task.orderedAssetIds}
+        mode="export"
+        onSelection={(ids) => props.onTask({ selectedAssetIds: ids })}
+        onOrder={(ids) => props.onTask({ orderedAssetIds: ids })}
+      />
+      <div className="workspace-footer">
+        <span>
+          <strong>{props.task.selectedAssetIds.length} 张已选择</strong>
+          <small>
+            包含 {animated} 张动图。
+            {props.task.destination?.kind === 'whatsapp'
+              ? '静态和动图会自动分开传输。'
+              : '将按本地文件夹规则分组。'}
+          </small>
+        </span>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!props.task.selectedAssetIds.length}
+          onClick={() => props.onStep(4)}
+        >
+          继续
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TransferStep(props: ExportPageProps) {
+  const { task, prepared } = props
+  const whatsAppDestination = task.destination?.kind === 'whatsapp'
+  const preparedPacks = toPreparedPacks(prepared)
+  return (
+    <div className="workflow-workspace transfer-workspace">
+      <StepHeading
+        title="传输表情"
+        description={
+          whatsAppDestination
+            ? 'WhatsApp 要求静态与动图分开传输。检查配置与分包后再确认发送。'
+            : '确认输出格式、命名规则和文件夹分组，再开始本地导出。'
+        }
+      />
+      {whatsAppDestination ? (
+        <div className="transfer-fields">
+          <label>
+            <span>表情包名称</span>
+            <input
+              value={task.whatsapp.title}
+              maxLength={128}
+              onChange={(event) =>
+                props.onTask({ whatsapp: { ...task.whatsapp, title: event.target.value } })
+              }
+            />
+          </label>
+          <label>
+            <span>发布者</span>
+            <input
+              value={task.whatsapp.publisher}
+              maxLength={128}
+              onChange={(event) =>
+                props.onTask({ whatsapp: { ...task.whatsapp, publisher: event.target.value } })
+              }
+            />
+          </label>
+          <label>
+            <span>每包数量</span>
+            <input
+              type="number"
+              min={3}
+              max={30}
+              value={task.whatsapp.packSize}
+              onChange={(event) =>
+                props.onTask({
+                  whatsapp: { ...task.whatsapp, packSize: Number(event.target.value) },
+                })
+              }
+            />
+          </label>
+        </div>
+      ) : (
+        <LocalTransferFields
+          task={task}
+          onTask={props.onTask}
+          onChooseDestination={props.onChooseLocalDestination}
+        />
+      )}
+      <section className="prepared-preview">
+        <div className="section-heading-row">
+          <div>
+            <h3>{whatsAppDestination ? '传输预览' : '文件夹分组预览'}</h3>
+            <p>
+              {prepared
+                ? `${prepared.groups.length} 个${whatsAppDestination ? '表情包' : '文件夹分组'}，${prepared.groups.reduce((count, group) => count + group.items.length, 0)} 张素材`
+                : '准备后会显示每组素材与转换状态。'}
+            </p>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={props.busy || !task.selectedAssetIds.length}
+            onClick={props.onPrepare}
+          >
+            {props.busy ? '正在准备' : task.prepared ? '重新准备' : '准备传输'}
+          </button>
+        </div>
+        {prepared?.warnings.map((warning) => (
+          <p className="inline-note warning" key={warning}>
+            {warning}
+          </p>
+        ))}
+        {prepared?.assetFailures.map((failure) => (
+          <p className="inline-note warning" key={failure.assetId}>
+            一张异常素材未能准备：{failure.message}
+          </p>
+        ))}
+        {prepared && (
+          <div className="prepared-groups">
+            {prepared.groups.map((group) => (
+              <article key={group.id} className={group.status === 'failed' ? 'is-failed' : ''}>
+                <div>
+                  <strong>{group.name}</strong>
+                  <span>
+                    {group.items.length} 张 ·{' '}
+                    {group.mediaKind === 'animated'
+                      ? '动图'
+                      : group.mediaKind === 'static'
+                        ? '静态表情'
+                        : '混合素材'}
+                  </span>
+                </div>
+                <div className="prepared-thumbs">
+                  {group.items.slice(0, 6).map((item) => (
+                    <img src={item.previewUrl} alt="" key={item.id} />
+                  ))}
+                </div>
+                <small>{group.status === 'failed' ? '准备失败' : '待传输'}</small>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+      {prepared && (
+        <label className="snapshot-choice">
+          <input type="checkbox" checked={Boolean(task.prepared?.snapshotId)} readOnly />
+          <span>
+            <strong>保留本次准备结果</strong>
+            <small>保存不可变副本，以后可预览或再次传输。</small>
+          </span>
+          <button
+            className="text-button"
+            type="button"
+            disabled={props.busy || Boolean(task.prepared?.snapshotId)}
+            onClick={() => props.onSaveSnapshot()}
+          >
+            {task.prepared?.snapshotId ? '已保存' : '保存'}
+          </button>
+        </label>
+      )}
+      {prepared && whatsAppDestination && (
+        <WhatsAppSendPanel
+          expectedPackCount={prepared.groups.length}
+          preparedPacks={preparedPacks}
+          onError={props.onError}
+          onSent={props.onRefreshTask}
+        />
+      )}
+      {prepared && !whatsAppDestination && (
+        <div className="workspace-footer">
+          <span>将创建新的本地导出批次，不覆盖原文件。</span>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={props.busy || prepared.groups.some((group) => group.status === 'failed')}
+            onClick={props.onTransferLocal}
+          >
+            导出到本地文件夹
+          </button>
+        </div>
+      )}
+      {props.snapshots.length > 0 && (
+        <SavedResults
+          snapshots={props.snapshots}
+          onOpen={props.onOpenSnapshot}
+          onDelete={props.onDeleteSnapshot}
+        />
+      )}
+    </div>
+  )
+}
+
+function LocalTransferFields({
+  task,
+  onTask,
+  onChooseDestination,
+}: {
+  task: ExportTask
+  onTask(patch: Partial<ExportTaskDraft>): void
+  onChooseDestination(): void
+}) {
+  return (
+    <div className="local-transfer-settings">
+      <button className="destination-summary" type="button" onClick={onChooseDestination}>
+        <FolderOpen size={20} />
+        <span>
+          <strong>
+            {task.destination?.kind === 'local-folder'
+              ? (task.destination.directoryLabel ?? '选择导出位置')
+              : '选择导出位置'}
+          </strong>
+          <small>点击更改本地文件夹</small>
+        </span>
+      </button>
+      <div className="transfer-fields">
+        <label>
+          <span>批次名称</span>
+          <input
+            value={task.localFolder.batchName}
+            onChange={(event) =>
+              onTask({ localFolder: { ...task.localFolder, batchName: event.target.value } })
+            }
+          />
+        </label>
+        <label>
+          <span>输出格式</span>
+          <select
+            value={task.localFolder.format}
+            onChange={(event) =>
+              onTask({
+                localFolder: {
+                  ...task.localFolder,
+                  format: event.target.value as 'original' | 'converted-webp',
+                },
+              })
+            }
+          >
+            <option value="original">保留原格式</option>
+            <option value="converted-webp">转换为 WebP</option>
+          </select>
+        </label>
+        <label>
+          <span>命名规则</span>
+          <select
+            value={task.localFolder.naming}
+            onChange={(event) =>
+              onTask({
+                localFolder: {
+                  ...task.localFolder,
+                  naming: event.target.value as 'original' | 'sequence',
+                },
+              })
+            }
+          >
+            <option value="original">保留原文件名</option>
+            <option value="sequence">按顺序编号</option>
+          </select>
+        </label>
+        <label>
+          <span>每文件夹数量</span>
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={task.localFolder.itemsPerFolder}
+            onChange={(event) =>
+              onTask({
+                localFolder: { ...task.localFolder, itemsPerFolder: Number(event.target.value) },
+              })
+            }
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function SavedResults({
+  snapshots,
+  onOpen,
+  onDelete,
+}: {
+  snapshots: PreparedSnapshotSummary[]
+  onOpen(id: string): void
+  onDelete(id: string): void
+}) {
+  return (
+    <section className="saved-results">
+      <h3>已保存的传输结果</h3>
+      <div>
+        {snapshots.slice(0, 6).map((snapshot) => (
+          <article key={snapshot.id}>
+            <button className="saved-result-main" type="button" onClick={() => onOpen(snapshot.id)}>
+              <strong>{snapshot.name}</strong>
+              <small>
+                {new Date(snapshot.createdAt).toLocaleString('zh-CN')} · {snapshot.assetCount} 张 ·{' '}
+                {snapshot.groupCount} 组 ·{' '}
+                {snapshot.destination === 'whatsapp' ? 'WhatsApp' : '本地文件夹'}
+              </small>
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={`删除 ${snapshot.name}`}
+              onClick={() => onDelete(snapshot.id)}
+            >
+              <Trash size={16} />
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function SnapshotPreviewDialog({
+  snapshot,
+  onClose,
+}: {
+  snapshot: PreparedSnapshotView
+  onClose(): void
+}) {
+  return (
+    <div className="preview-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="snapshot-preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="snapshot-preview-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <h2 id="snapshot-preview-title">{snapshot.name}</h2>
+            <p>
+              {snapshot.destination === 'whatsapp' ? 'WhatsApp' : '本地文件夹'}，
+              {snapshot.assetCount} 张素材，{snapshot.groupCount} 组
+            </p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭预览">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="snapshot-preview-groups">
+          {snapshot.groups.map((group) => (
+            <article key={group.id}>
+              <div>
+                <strong>{group.name}</strong>
+                <small>{group.items.length} 张</small>
+              </div>
+              <div>
+                {group.items.map((item) => (
+                  <img src={item.previewUrl} alt="" key={item.id} />
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+        <footer>
+          <span>这是独立保存的不可变副本，删除源素材后仍可安全预览。</span>
+          <button className="primary-button" type="button" onClick={onClose}>
+            完成
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function LibraryPage({
+  collection,
+  onSelection,
+  onOrder,
+  onDelete,
+  onLocalImport,
+  onWechat4,
+}: {
+  collection: CollectionView
+  onSelection(ids: string[]): void
+  onOrder(ids: string[]): void
+  onDelete(ids: string[]): void
+  onLocalImport(mode: ImportMode): void
+  onWechat4(): void
+}) {
+  return (
+    <div className="page-workspace">
+      <StepHeading
+        title="我的表情库"
+        description="本机已管理素材的浏览与管理入口。筛选不会改变全局顺序或来源归属。"
+        aside={
+          <div className="heading-actions">
+            <button className="secondary-button" type="button" onClick={onWechat4}>
+              <WechatLogo size={16} />
+              微信导入
+            </button>
+            <button className="primary-button" type="button" onClick={() => onLocalImport('files')}>
+              <UploadSimple size={16} />
+              本机导入
+            </button>
+          </div>
+        }
+      />
+      {collection.assets.length ? (
+        <StickerPicker
+          assets={collection.assets}
+          selectedIds={collection.selectedAssetIds}
+          orderedIds={[...collection.assets]
+            .sort((a, b) => a.userOrder - b.userOrder)
+            .map((asset) => asset.id)}
+          mode="library"
+          onSelection={onSelection}
+          onOrder={onOrder}
+          onDelete={onDelete}
+        />
+      ) : (
+        <div className="empty-state">
+          <Images size={36} />
+          <h3>表情库还是空的</h3>
+          <p>从本机或微信导入后，素材会安全保存到这里。</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConnectionsPage({
+  onError,
+  onStatus,
+  onWechat4,
+}: {
+  onError(message: string): void
+  onStatus(status: WhatsAppConnectionView): void
+  onWechat4(): void
+}) {
+  return (
+    <div className="page-workspace narrow-page">
+      <StepHeading
+        title="连接到 App"
+        description="管理长期连接与本机导入授权。连接配置不会变成第二条导出流程。"
+      />
+      <WhatsAppConnectionPanel onError={onError} onStatus={onStatus} />
+      <section className="connection-panel wechat-access">
+        <header>
+          <span className="destination-icon wechat">
+            <WechatLogo size={30} weight="fill" />
+          </span>
+          <div>
+            <h3>微信导入访问</h3>
+            <p>微信不是永久连接。只有你点击重新授权后，才会启动临时副本或读取真实数据。</p>
+          </div>
+        </header>
+        <footer>
+          <button className="secondary-button" type="button" onClick={onWechat4}>
+            查看脱敏账号与重新授权
+          </button>
+        </footer>
+      </section>
+      <section className="connection-panel is-muted">
+        <header>
+          <span className="destination-icon">
+            <Link size={27} />
+          </span>
+          <div>
+            <h3>更多 App</h3>
+            <p>暂未支持。可以先导出到本地文件夹后手动添加。</p>
+          </div>
+        </header>
+      </section>
+    </div>
+  )
+}
+
+function SettingsPage({
+  task,
+  onChooseDirectory,
+}: {
+  task: ExportTask
+  onChooseDirectory(): void
+}) {
+  return (
+    <div className="page-workspace narrow-page">
+      <StepHeading
+        title="设置"
+        description="调整本地导出与默认行为。敏感凭证请在“连接到 App”中管理。"
+      />
+      <section className="settings-section">
+        <h3>本地导出</h3>
+        <button className="settings-row" type="button" onClick={onChooseDirectory}>
+          <span>
+            <strong>默认导出位置</strong>
+            <small>
+              {task.destination?.kind === 'local-folder'
+                ? (task.destination.directoryLabel ?? '尚未选择')
+                : '尚未选择'}
+            </small>
+          </span>
+          <ArrowRight size={18} />
+        </button>
+        <div className="settings-row">
+          <span>
+            <strong>默认文件夹分组</strong>
+            <small>
+              每组 {task.localFolder.itemsPerFolder} 张，
+              {task.localFolder.format === 'original' ? '保留原格式' : '转换为 WebP'}
+            </small>
+          </span>
+        </div>
+      </section>
+      <section className="settings-section">
+        <h3>隐私与存储</h3>
+        <div className="settings-row">
+          <span>
+            <strong>本地优先</strong>
+            <small>素材库、准备缓存、snapshot 与连接状态只保存在这台 Mac。</small>
+          </span>
+          <ShieldCheck size={20} />
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function AboutPage() {
+  return (
+    <div className="page-workspace narrow-page about-page">
+      <StepHeading
+        title="关于与安全"
+        description="梗出海是一款本地优先的 macOS 表情整理与传输工具。"
+      />
+      <section>
+        <h3>微信数据怎么读取？</h3>
+        <p>
+          应用只在你明确授权后读取微信表情相关数据。必要时会创建隔离的临时副本并请你扫码，不会修改原
+          WeChat.app。你可以通过退出临时副本和系统权限设置撤销访问。
+        </p>
+      </section>
+      <section>
+        <h3>数据会上传吗？</h3>
+        <p>
+          本机图片与数据库在本地处理。微信 key 只用于当前解密验证，WhatsApp session
+          只用于你主动发起的连接与传输，不进入日志或 renderer state。
+        </p>
+      </section>
+      <section>
+        <h3>WhatsApp 凭证如何保存？</h3>
+        <p>
+          默认使用 macOS 钥匙串保护。也可选择权限受限的本地明文文件，目录为 0700、文件为
+          0600。切换模式前必须先登出。
+        </p>
+      </section>
+      <section>
+        <h3>独立项目与公开审查</h3>
+        <p>
+          本项目不是腾讯或 Meta 官方产品。源码、构建配置和依赖可公开审查。Phase 9
+          还会进行许可证、安全、隐私和发布审查。
+        </p>
+      </section>
     </div>
   )
 }

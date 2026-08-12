@@ -8,6 +8,7 @@ import type {
   ImportSummary,
   LegacyWechatDownloadMode,
   LegacyWechatDiscoveryView,
+  LocalExportSummary,
   PackSettings,
   PrepareExportSummary,
   PreparePacksSummary,
@@ -31,6 +32,7 @@ export const IPC_CHANNELS = {
   resetExportTask: 'exports:reset-current-task',
   chooseExportDirectory: 'exports:choose-local-directory',
   prepareExportTask: 'exports:prepare-current-task',
+  transferLocalExport: 'exports:transfer-local',
   savePreparedSnapshot: 'exports:save-prepared-snapshot',
   listPreparedSnapshots: 'exports:list-prepared-snapshots',
   getPreparedSnapshot: 'exports:get-prepared-snapshot',
@@ -71,6 +73,7 @@ export interface StickerAppApi {
   resetExportTask(): Promise<ExportTask>
   chooseExportDirectory(): Promise<ExportDestinationChoice | undefined>
   prepareExportTask(): Promise<PrepareExportSummary>
+  transferLocalExport(): Promise<LocalExportSummary>
   savePreparedSnapshot(forceDuplicate?: boolean): Promise<SavePreparedSnapshotResult>
   listPreparedSnapshots(): Promise<PreparedSnapshotSummary[]>
   getPreparedSnapshot(id: string): Promise<PreparedSnapshotView>

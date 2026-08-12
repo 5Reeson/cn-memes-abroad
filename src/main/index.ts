@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent 
 
 import { ExportDestinationStore } from './exports/export-destination-store.js'
 import { ExportPreparer, type PreparedExportResult } from './exports/export-preparer.js'
+import { writePreparedLocalExport } from './exports/local-export-writer.js'
 import { LocalStickerSource } from './library/local-sticker-source.js'
 import { ExportTaskStore } from './exports/export-task-store.js'
 import {
@@ -179,6 +180,9 @@ async function prepareCurrentExportTask(
   const nextTask = await exportTaskStore.setPrepared({
     fingerprint: prepared.fingerprint,
     status: hasFailure ? 'partial-failure' : 'prepared',
+    ...(task.prepared?.fingerprint === prepared.fingerprint && task.prepared.snapshotId
+      ? { snapshotId: task.prepared.snapshotId }
+      : {}),
     preparedAt: new Date().toISOString(),
   })
   return { task: nextTask, prepared }
@@ -321,6 +325,30 @@ function installIpcHandlers(): void {
           .flatMap((group) => group.payloads)
           .find((candidate) => candidate.assetId === assetId)
         return payload ? `sticker-asset://preview/${encodeURIComponent(assetId)}` : ''
+      })
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transferLocalExport, async (event: IpcMainInvokeEvent) => {
+    try {
+      return await enqueueMutation(async () => {
+        const { task, prepared } = await prepareCurrentExportTask((progress) =>
+          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+        )
+        if (task.destination?.kind !== 'local-folder' || !task.destination.directoryId) {
+          throw new Error('请先选择本地导出位置')
+        }
+        const target = await exportDestinationStore.resolveDirectory(task.destination.directoryId)
+        const result = await writePreparedLocalExport(prepared, target)
+        await exportTaskStore.setPrepared({
+          fingerprint: prepared.fingerprint,
+          status: 'complete',
+          snapshotId: task.prepared?.snapshotId,
+          preparedAt: new Date().toISOString(),
+        })
+        return result
       })
     } catch (error) {
       throw sanitizeError(error)
@@ -787,8 +815,14 @@ function installIpcHandlers(): void {
       if (packIds !== undefined) assertStringArray(packIds, 'packIds')
       try {
         const collection = await manifestStore.loadOrCreate()
-        const prepared = await packPreparer.prepare(collection, collectionDirectory, (progress) =>
-          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+        const task = await exportTaskStore.reconcileAssets(
+          new Set(collection.assets.map((asset) => asset.id)),
+        )
+        const prepared = await exportPreparer.prepareWhatsAppPacks(
+          task,
+          collection,
+          collectionDirectory,
+          (progress) => event.sender.send(IPC_CHANNELS.prepareProgress, progress),
         )
         const requestedIds = packIds === undefined ? undefined : new Set(packIds)
         if (requestedIds) {
@@ -804,6 +838,14 @@ function installIpcHandlers(): void {
         const receipts = await whatsappManager.sendPacks(targetId, selectedPacks, (progress) =>
           event.sender.send(IPC_CHANNELS.whatsappSendProgress, progress),
         )
+        if (task.prepared) {
+          await exportTaskStore.setPrepared({
+            ...task.prepared,
+            status: receipts.some((receipt) => receipt.status === 'failed')
+              ? 'partial-failure'
+              : 'complete',
+          })
+        }
         return { receipts }
       } catch (error) {
         throw sanitizeError(error)

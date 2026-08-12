@@ -130,15 +130,7 @@ export class ExportPreparer {
     collectionDirectory: string,
     onProgress?: (progress: PrepareProgress) => void,
   ): Promise<PreparedExportResult> {
-    const preparedCollection: StickerCollection = {
-      ...collection,
-      id: task.id,
-      title: task.whatsapp.title.trim(),
-      publisher: task.whatsapp.publisher.trim(),
-      packSize: task.whatsapp.packSize,
-      assets: assets.map((asset, userOrder) => ({ ...asset, userOrder })),
-      selectedAssetIds: assets.map((asset) => asset.id),
-    }
+    const preparedCollection = this.whatsAppCollection(task, collection, assets)
     const plan = planStickerPacks(preparedCollection)
     const packs = await this.packPreparer.prepare(
       preparedCollection,
@@ -175,6 +167,38 @@ export class ExportPreparer {
       assetFailures: packs.flatMap((pack) => pack.assetFailures),
     }
     return { ...result, fingerprint: fingerprintPrepared(result) }
+  }
+
+  async prepareWhatsAppPacks(
+    task: ExportTask,
+    collection: StickerCollection,
+    collectionDirectory: string,
+    onProgress?: (progress: PrepareProgress) => void,
+  ): Promise<PreparedPack[]> {
+    if (task.destination?.kind !== 'whatsapp') throw new Error('当前导出目的地不是 WhatsApp')
+    const assets = orderedTaskAssets(task, collection)
+    if (assets.length === 0) throw new Error('请先选择要传输的表情')
+    return this.packPreparer.prepare(
+      this.whatsAppCollection(task, collection, assets),
+      collectionDirectory,
+      onProgress,
+    )
+  }
+
+  private whatsAppCollection(
+    task: ExportTask,
+    collection: StickerCollection,
+    assets: StickerAsset[],
+  ): StickerCollection {
+    return {
+      ...collection,
+      id: task.id,
+      title: task.whatsapp.title.trim(),
+      publisher: task.whatsapp.publisher.trim(),
+      packSize: task.whatsapp.packSize,
+      assets: assets.map((asset, userOrder) => ({ ...asset, userOrder })),
+      selectedAssetIds: assets.map((asset) => asset.id),
+    }
   }
 
   private async whatsAppGroup(
