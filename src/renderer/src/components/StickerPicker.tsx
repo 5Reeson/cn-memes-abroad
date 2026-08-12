@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -10,6 +10,8 @@ import {
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DotsSixIcon as Grip } from '@phosphor-icons/react/DotsSix'
+import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
+import { CheckIcon as Check } from '@phosphor-icons/react/Check'
 import { MagnifyingGlassIcon as Search } from '@phosphor-icons/react/MagnifyingGlass'
 import { SquareIcon as Square } from '@phosphor-icons/react/Square'
 import { XIcon as X } from '@phosphor-icons/react/X'
@@ -143,18 +145,7 @@ export function StickerPicker({
             placeholder="搜索表情"
           />
         </label>
-        <select
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          aria-label="按来源筛选"
-        >
-          <option value="all">全部来源</option>
-          {sourceOptions.map(([value, label]) => (
-            <option value={value} key={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <SourceFilter value={source} options={sourceOptions} onChange={setSource} />
       </div>
       <div className="picker-selection-bar">
         <span>
@@ -236,6 +227,72 @@ export function StickerPicker({
         </div>
       )}
     </section>
+  )
+}
+
+function SourceFilter({
+  value,
+  options,
+  onChange,
+}: {
+  value: string
+  options: Array<[string, string]>
+  onChange(value: string): void
+}) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const allOptions: Array<[string, string]> = [['all', '全部来源'], ...options]
+  const label = allOptions.find(([option]) => option === value)?.[1] ?? '全部来源'
+
+  useEffect(() => {
+    if (!open) return
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div className="source-filter" ref={root}>
+      <button
+        className="source-filter-trigger"
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{label}</span>
+        <CaretDown size={15} weight="bold" />
+      </button>
+      {open && (
+        <div className="source-filter-menu" role="listbox" aria-label="按来源筛选">
+          {allOptions.map(([option, optionLabel]) => (
+            <button
+              className={option === value ? 'is-selected' : ''}
+              type="button"
+              role="option"
+              aria-selected={option === value}
+              key={option}
+              onClick={() => {
+                onChange(option)
+                setOpen(false)
+              }}
+            >
+              <span>{optionLabel}</span>
+              {option === value && <Check size={15} weight="bold" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

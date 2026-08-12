@@ -126,6 +126,10 @@ export function App() {
     const current = taskRef.current
     const api = window.stickerApp
     if (!current || !api) return
+    if (patch.currentStep !== undefined && patch.currentStep !== 1) {
+      setWechat4Open(false)
+      setLegacyOpen(false)
+    }
     const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
     taskRef.current = next
     setTask(next)
@@ -145,6 +149,12 @@ export function App() {
 
   function moveToStep(step: ExportTask['currentStep']) {
     updateTask({ currentStep: step })
+  }
+
+  function navigate(nextPage: AppPage) {
+    setWechat4Open(false)
+    setLegacyOpen(false)
+    setPage(nextPage)
   }
 
   async function importAssets(mode: ImportMode) {
@@ -338,6 +348,21 @@ export function App() {
           setWechat4Open(false)
           setLegacyOpen(true)
         }}
+        wechatPanel={
+          wechat4Open ? (
+            <Wechat4Panel
+              onClose={() => setWechat4Open(false)}
+              onImported={(result) => applyImportSummary(result, 'wechat')}
+              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+            />
+          ) : legacyOpen ? (
+            <WechatLegacyPanel
+              onClose={() => setLegacyOpen(false)}
+              onImported={(result) => applyImportSummary(result, 'wechat')}
+              onStopped={() => setNotice('已停止微信旧版导入。')}
+            />
+          ) : null
+        }
         onChooseLocalDestination={chooseLocalDestination}
         onPrepare={prepareTask}
         onSaveSnapshot={saveSnapshot}
@@ -361,12 +386,30 @@ export function App() {
         onDelete={removeAssets}
         onLocalImport={importAssets}
         onWechat4={() => setWechat4Open(true)}
+        wechatPanel={
+          wechat4Open ? (
+            <Wechat4Panel
+              onClose={() => setWechat4Open(false)}
+              onImported={(result) => applyImportSummary(result, 'wechat')}
+              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+            />
+          ) : null
+        }
       />
     ) : page === 'connections' ? (
       <ConnectionsPage
         onError={setError}
         onStatus={setWhatsApp}
         onWechat4={() => setWechat4Open(true)}
+        wechatPanel={
+          wechat4Open ? (
+            <Wechat4Panel
+              onClose={() => setWechat4Open(false)}
+              onImported={(result) => applyImportSummary(result, 'wechat')}
+              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+            />
+          ) : null
+        }
       />
     ) : page === 'settings' ? (
       <SettingsPage task={task} onChooseDirectory={chooseLocalDestination} />
@@ -377,7 +420,7 @@ export function App() {
   return (
     <AppShell
       page={page}
-      onNavigate={setPage}
+      onNavigate={navigate}
       rail={
         page === 'export' && task ? <WorkflowRail task={task} onStep={moveToStep} /> : undefined
       }
@@ -399,20 +442,6 @@ export function App() {
             <X size={16} />
           </button>
         </div>
-      )}
-      {wechat4Open && (
-        <Wechat4Panel
-          onClose={() => setWechat4Open(false)}
-          onImported={(result) => applyImportSummary(result, 'wechat')}
-          onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
-        />
-      )}
-      {legacyOpen && (
-        <WechatLegacyPanel
-          onClose={() => setLegacyOpen(false)}
-          onImported={(result) => applyImportSummary(result, 'wechat')}
-          onStopped={() => setNotice('已停止微信旧版导入。')}
-        />
       )}
       {snapshotPreview && (
         <SnapshotPreviewDialog
@@ -439,6 +468,7 @@ interface ExportPageProps {
   onLocalImport(mode: ImportMode): void
   onWechat4(): void
   onLegacy(): void
+  wechatPanel: React.ReactNode
   onChooseLocalDestination(): void
   onPrepare(): void
   onSaveSnapshot(forceDuplicate?: boolean): void
@@ -504,6 +534,7 @@ function SourceStep(props: ExportPageProps) {
             </button>
           </div>
         </section>
+        {props.wechatPanel && <div className="source-inline-panel">{props.wechatPanel}</div>}
         <section className="choice-row">
           <span className="destination-icon">
             <FolderOpen size={32} />
@@ -1037,6 +1068,7 @@ function LibraryPage({
   onDelete,
   onLocalImport,
   onWechat4,
+  wechatPanel,
 }: {
   collection: CollectionView
   onSelection(ids: string[]): void
@@ -1044,6 +1076,7 @@ function LibraryPage({
   onDelete(ids: string[]): void
   onLocalImport(mode: ImportMode): void
   onWechat4(): void
+  wechatPanel: React.ReactNode
 }) {
   return (
     <div className="page-workspace">
@@ -1063,6 +1096,7 @@ function LibraryPage({
           </div>
         }
       />
+      {wechatPanel && <div className="page-inline-panel">{wechatPanel}</div>}
       {collection.assets.length ? (
         <StickerPicker
           assets={collection.assets}
@@ -1090,10 +1124,12 @@ function ConnectionsPage({
   onError,
   onStatus,
   onWechat4,
+  wechatPanel,
 }: {
   onError(message: string): void
   onStatus(status: WhatsAppConnectionView): void
   onWechat4(): void
+  wechatPanel: React.ReactNode
 }) {
   return (
     <div className="page-workspace narrow-page">
@@ -1118,6 +1154,7 @@ function ConnectionsPage({
           </button>
         </footer>
       </section>
+      {wechatPanel && <div className="page-inline-panel">{wechatPanel}</div>}
       <section className="connection-panel is-muted">
         <header>
           <span className="destination-icon">
@@ -1141,42 +1178,65 @@ function SettingsPage({
   onChooseDirectory(): void
 }) {
   return (
-    <div className="page-workspace narrow-page">
+    <div className="page-workspace narrow-page settings-page">
       <StepHeading
         title="设置"
         description="调整本地导出与默认行为。敏感凭证请在“连接到 App”中管理。"
       />
-      <section className="settings-section">
-        <h3>本地导出</h3>
-        <button className="settings-row" type="button" onClick={onChooseDirectory}>
-          <span>
-            <strong>默认导出位置</strong>
-            <small>
-              {task.destination?.kind === 'local-folder'
-                ? (task.destination.directoryLabel ?? '尚未选择')
-                : '尚未选择'}
-            </small>
+      <section className="settings-group">
+        <header className="settings-group-heading">
+          <span className="settings-group-icon">
+            <FolderOpen size={20} />
           </span>
-          <ArrowRight size={18} />
-        </button>
-        <div className="settings-row">
-          <span>
-            <strong>默认文件夹分组</strong>
-            <small>
-              每组 {task.localFolder.itemsPerFolder} 张，
-              {task.localFolder.format === 'original' ? '保留原格式' : '转换为 WebP'}
-            </small>
-          </span>
+          <div>
+            <h3>本地导出</h3>
+            <p>设置常用位置与文件夹分组方式。</p>
+          </div>
+        </header>
+        <div className="settings-list">
+          <button className="settings-row" type="button" onClick={onChooseDirectory}>
+            <span>
+              <strong>默认导出位置</strong>
+              <small>
+                {task.destination?.kind === 'local-folder'
+                  ? (task.destination.directoryLabel ?? '尚未选择')
+                  : '尚未选择'}
+              </small>
+            </span>
+            <ArrowRight size={18} />
+          </button>
+          <div className="settings-row">
+            <span>
+              <strong>默认文件夹分组</strong>
+              <small>
+                每组 {task.localFolder.itemsPerFolder} 张，
+                {task.localFolder.format === 'original' ? '保留原格式' : '转换为 WebP'}
+              </small>
+            </span>
+          </div>
         </div>
       </section>
-      <section className="settings-section">
-        <h3>隐私与存储</h3>
-        <div className="settings-row">
-          <span>
-            <strong>本地优先</strong>
-            <small>素材库、准备缓存、snapshot 与连接状态只保存在这台 Mac。</small>
+      <section className="settings-group">
+        <header className="settings-group-heading">
+          <span className="settings-group-icon">
+            <ShieldCheck size={20} />
           </span>
-          <ShieldCheck size={20} />
+          <div>
+            <h3>隐私与存储</h3>
+            <p>查看本机数据处理与凭证管理边界。</p>
+          </div>
+        </header>
+        <div className="settings-list">
+          <div className="settings-row">
+            <span>
+              <strong>本地优先</strong>
+              <small>素材库、准备缓存、已保存结果与连接状态只保存在这台 Mac。</small>
+            </span>
+            <span className="settings-status">
+              <ShieldCheck size={17} />
+              已启用
+            </span>
+          </div>
         </div>
       </section>
     </div>
