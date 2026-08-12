@@ -56,6 +56,7 @@ describe('buildNativeStickerPackPayload', () => {
       status: 'prepared',
       trayPath,
       traySizeBytes: 1,
+      assetFailures: [],
       stickers: stickerPaths.map((outputPath, index) => ({
         assetId: `asset-${index}`,
         outputPath,

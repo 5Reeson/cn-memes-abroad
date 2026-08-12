@@ -23,6 +23,9 @@ import {
   type Wechat4StickerSource,
 } from './sources/wechat4/wechat4-source.js'
 import { EncryptedAuthStore } from './whatsapp/encrypted-auth-store.js'
+import { CredentialAuthStore } from './whatsapp/credential-auth-store.js'
+import { CredentialModeStore, isCredentialMode } from './whatsapp/credential-mode-store.js'
+import { PlaintextAuthStore } from './whatsapp/plaintext-auth-store.js'
 import { SendReceiptStore } from './whatsapp/send-receipt-store.js'
 import { WhatsAppManager } from './whatsapp/whatsapp-manager.js'
 import type {
@@ -170,7 +173,9 @@ async function prepareCurrentExportTask(
   }
   const prepared = await exportPreparer.prepare(task, collection, collectionDirectory, onProgress)
   const hasFailure =
-    prepared.warnings.length > 0 || prepared.groups.some((group) => group.status === 'failed')
+    prepared.warnings.length > 0 ||
+    prepared.assetFailures.length > 0 ||
+    prepared.groups.some((group) => group.status === 'failed')
   const nextTask = await exportTaskStore.setPrepared({
     fingerprint: prepared.fingerprint,
     status: hasFailure ? 'partial-failure' : 'prepared',
@@ -221,6 +226,7 @@ function toPreparedPackView(pack: PreparedPack): PreparedPackView {
     mediaKind: pack.mediaKind,
     stickers: pack.stickers.map(({ outputPath: _outputPath, ...sticker }) => sticker),
     traySizeBytes: pack.traySizeBytes,
+    assetFailures: pack.assetFailures,
     status: pack.status,
     error: pack.error,
   }
@@ -713,7 +719,17 @@ function installIpcHandlers(): void {
       const packs = await packPreparer.prepare(collection, collectionDirectory, (progress) =>
         event.sender.send(IPC_CHANNELS.prepareProgress, progress),
       )
-      return { packs: packs.map(toPreparedPackView) }
+      return {
+        packs: packs.map(toPreparedPackView),
+        animationRepairs: packs.flatMap((pack) =>
+          pack.stickers
+            .filter((sticker) => sticker.animationTimingAdjusted)
+            .map((sticker) => ({
+              assetId: sticker.assetId,
+              droppedFrameCount: sticker.droppedFrameCount ?? 0,
+            })),
+        ),
+      }
     } catch (error) {
       throw sanitizeError(error)
     }
@@ -732,8 +748,29 @@ function installIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.whatsappDisconnect, async () => whatsappManager.disconnect())
-  ipcMain.handle(IPC_CHANNELS.whatsappLogout, async () => whatsappManager.logout())
+  ipcMain.handle(IPC_CHANNELS.whatsappDisconnect, async () => {
+    try {
+      return await whatsappManager.disconnect()
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.whatsappSetCredentialMode, async (_event, mode: unknown) => {
+    if (!isCredentialMode(mode)) throw new TypeError('Invalid WhatsApp credential mode')
+    try {
+      return await whatsappManager.setCredentialMode(mode)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.whatsappLogout, async (_event, confirmed: unknown) => {
+    if (confirmed !== true) throw new Error('必须确认登出并清除 WhatsApp session')
+    try {
+      return await whatsappManager.logout()
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
 
   ipcMain.handle(IPC_CHANNELS.whatsappListGroups, async () => {
     try {
@@ -760,9 +797,9 @@ function installIpcHandlers(): void {
             throw new TypeError('Send request contains an unknown pack')
           }
         }
-        const selectedPacks = requestedIds
-          ? prepared.filter((pack) => requestedIds.has(pack.id))
-          : prepared
+        const selectedPacks = prepared.filter(
+          (pack) => pack.status === 'prepared' && (!requestedIds || requestedIds.has(pack.id)),
+        )
         if (selectedPacks.length === 0) throw new Error('没有可发送的贴纸包')
         const receipts = await whatsappManager.sendPacks(targetId, selectedPacks, (progress) =>
           event.sender.send(IPC_CHANNELS.whatsappSendProgress, progress),
@@ -885,7 +922,11 @@ app.whenReady().then(async () => {
     join(userDataDirectory, 'settings', 'import-preferences.json'),
   )
   whatsappManager = new WhatsAppManager(
-    new EncryptedAuthStore(join(userDataDirectory, 'whatsapp', 'session.enc')),
+    new CredentialAuthStore(
+      new CredentialModeStore(join(userDataDirectory, 'whatsapp', 'credential-mode.json')),
+      new EncryptedAuthStore(join(userDataDirectory, 'whatsapp', 'session.enc')),
+      new PlaintextAuthStore(join(userDataDirectory, 'whatsapp', 'session.json')),
+    ),
     new SendReceiptStore(join(userDataDirectory, 'whatsapp', 'send-receipts.json')),
     (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) {

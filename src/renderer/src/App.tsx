@@ -186,6 +186,7 @@ export function App() {
   const [preparedPacks, setPreparedPacks] = useState<PreparedPackView[]>([])
   const [preparing, setPreparing] = useState(false)
   const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
+  const [prepareNotice, setPrepareNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [wechat4PanelOpen, setWechat4PanelOpen] = useState(false)
   const [legacyPanelOpen, setLegacyPanelOpen] = useState(false)
@@ -256,6 +257,7 @@ export function App() {
 
   useEffect(() => {
     setPreparedPacks([])
+    setPrepareNotice(null)
   }, [packPlanSignature])
 
   async function importAssets(mode: ImportMode) {
@@ -395,10 +397,27 @@ export function App() {
     if (!(await persistPackSettings())) return
     setPreparing(true)
     setPrepareProgress(null)
+    setPrepareNotice(null)
     setError(null)
     try {
       const result = await api.preparePacks()
       setPreparedPacks(result.packs)
+      const failedAssets = result.packs.reduce(
+        (count, pack) => count + pack.assetFailures.length,
+        0,
+      )
+      const messages: string[] = []
+      if (result.animationRepairs.length > 0) {
+        const droppedFrames = result.animationRepairs.reduce(
+          (count, repair) => count + repair.droppedFrameCount,
+          0,
+        )
+        messages.push(
+          `已自动规范化 ${result.animationRepairs.length} 张动图的短帧${droppedFrames ? `，并合并 ${droppedFrames} 个不可感知帧` : ''}`,
+        )
+      }
+      if (failedAssets > 0) messages.push(`${failedAssets} 张异常素材未能转换，其他素材仍可继续`)
+      setPrepareNotice(messages.length > 0 ? `${messages.join('；')}。` : null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -669,10 +688,16 @@ export function App() {
                     ))}
                   </div>
                 )}
+                {prepareNotice && (
+                  <p className="pack-repair-notice" role="status">
+                    {prepareNotice}
+                  </p>
+                )}
                 {packPlan.packs.length > 0 ? (
                   <div className="pack-preview-list">
                     {packPlan.packs.map((pack, index) => {
-                      const prepared = preparedPacks.find((item) => item.id === pack.id)
+                      const prepared =
+                        preparedPacks.find((item) => item.id === pack.id) ?? preparedPacks[index]
                       return (
                         <article className="pack-preview-card" key={pack.id}>
                           <div className="pack-thumbnails" aria-hidden="true">
@@ -705,6 +730,11 @@ export function App() {
                                 : '待准备'}
                           </span>
                           {prepared?.error && <p className="pack-error">{prepared.error}</p>}
+                          {!prepared?.error && Boolean(prepared?.assetFailures.length) && (
+                            <p className="pack-error is-warning">
+                              {prepared!.assetFailures.length} 张无法转换；本包其余素材仍可发送
+                            </p>
+                          )}
                         </article>
                       )
                     })}

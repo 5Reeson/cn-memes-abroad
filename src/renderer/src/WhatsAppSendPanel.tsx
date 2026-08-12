@@ -15,6 +15,7 @@ import type {
   SendPackReceipt,
   WhatsAppConnectionPhase,
   WhatsAppConnectionView,
+  WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
 
@@ -27,6 +28,8 @@ interface WhatsAppSendPanelProps {
 const initialConnection: WhatsAppConnectionView = {
   phase: 'disconnected',
   hasSession: false,
+  credentialMode: 'keychain',
+  canChangeCredentialMode: true,
 }
 
 function connectionLabel(phase: WhatsAppConnectionPhase): string {
@@ -148,6 +151,19 @@ export function WhatsAppSendPanel({
     }
   }
 
+  async function setCredentialMode(mode: WhatsAppCredentialMode) {
+    const api = window.stickerApp
+    if (!api || mode === connection.credentialMode) return
+    setConnectionBusy(true)
+    try {
+      setConnection(await api.setWhatsAppCredentialMode(mode))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setConnectionBusy(false)
+    }
+  }
+
   async function switchToPairingMode() {
     if (
       ['connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code'].includes(
@@ -161,10 +177,16 @@ export function WhatsAppSendPanel({
 
   async function logout() {
     const api = window.stickerApp
-    if (!api || !window.confirm('退出 WhatsApp 并清除本机加密 session？贴纸库不会删除。')) return
+    if (
+      !api ||
+      !window.confirm(
+        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和已保存的传输结果不会删除。',
+      )
+    )
+      return
     setConnectionBusy(true)
     try {
-      setConnection(await api.logoutWhatsApp())
+      setConnection(await api.logoutWhatsApp(true))
       setSelectedTargetId(null)
       setGroups(null)
     } catch (error) {
@@ -240,11 +262,47 @@ export function WhatsAppSendPanel({
               <p>
                 {connection.message ??
                   (connection.hasSession
-                    ? 'session 已由 macOS 安全存储加密；连接后无需再次扫码。'
-                    : '使用手机 WhatsApp 关联这台 Mac，session 只加密保存在本机。')}
+                    ? connection.credentialMode === 'keychain'
+                      ? 'session 由 macOS 钥匙串保护；连接后通常无需再次扫码。'
+                      : 'session 保存在权限受限的本地明文文件；连接后通常无需再次扫码。'
+                    : '首次关联前请选择 session 的本机存储方式。')}
               </p>
             </div>
           </div>
+
+          <fieldset
+            className="credential-mode-picker"
+            disabled={!connection.canChangeCredentialMode || connectionBusy}
+          >
+            <legend>WhatsApp 凭证存储</legend>
+            <label className={connection.credentialMode === 'keychain' ? 'is-selected' : ''}>
+              <input
+                type="radio"
+                name="whatsapp-credential-mode"
+                checked={connection.credentialMode === 'keychain'}
+                onChange={() => void setCredentialMode('keychain')}
+              />
+              <span>
+                <strong>macOS 钥匙串保护</strong>
+                <small>推荐。使用系统安全存储加密 session。</small>
+              </span>
+            </label>
+            <label className={connection.credentialMode === 'plaintext' ? 'is-selected' : ''}>
+              <input
+                type="radio"
+                name="whatsapp-credential-mode"
+                checked={connection.credentialMode === 'plaintext'}
+                onChange={() => void setCredentialMode('plaintext')}
+              />
+              <span>
+                <strong>本地明文文件</strong>
+                <small>安全性较低；目录 0700、文件 0600，仅建议排障时使用。</small>
+              </span>
+            </label>
+            {!connection.canChangeCredentialMode && (
+              <p>已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。</p>
+            )}
+          </fieldset>
 
           {connection.phase === 'awaiting-qr' && connection.qrDataUrl && (
             <div className="login-challenge">

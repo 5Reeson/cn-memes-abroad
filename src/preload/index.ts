@@ -45,7 +45,9 @@ const api: StickerAppApi = {
   connectWhatsApp: (pairingPhone?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.whatsappConnect, pairingPhone),
   disconnectWhatsApp: () => ipcRenderer.invoke(IPC_CHANNELS.whatsappDisconnect),
-  logoutWhatsApp: () => ipcRenderer.invoke(IPC_CHANNELS.whatsappLogout),
+  setWhatsAppCredentialMode: (mode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.whatsappSetCredentialMode, mode),
+  logoutWhatsApp: (confirmed) => ipcRenderer.invoke(IPC_CHANNELS.whatsappLogout, confirmed),
   listWhatsAppGroups: () => ipcRenderer.invoke(IPC_CHANNELS.whatsappListGroups),
   sendWhatsAppPacks: (targetId: string, packIds?: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.whatsappSendPacks, targetId, packIds),

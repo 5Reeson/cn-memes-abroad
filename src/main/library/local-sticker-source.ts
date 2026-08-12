@@ -134,7 +134,11 @@ function errorMessage(error: unknown): string {
 
 function durationFrom(metadata: Metadata): number | undefined {
   if (!metadata.delay || metadata.delay.length === 0) return undefined
-  return metadata.delay.reduce((total, delay) => total + delay, 0)
+  const delays =
+    metadata.format === 'gif'
+      ? metadata.delay.map((delay) => (delay === 0 ? 100 : delay))
+      : metadata.delay
+  return delays.reduce((total, delay) => total + delay, 0)
 }
 
 async function inspectImage(path: string): Promise<InspectedImage> {

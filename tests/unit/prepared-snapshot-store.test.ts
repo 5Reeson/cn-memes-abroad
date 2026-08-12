@@ -149,6 +149,8 @@ function preparation(
     ],
     conversionVersion: 'local-original-v1',
     warnings: [],
+    animationRepairs: [],
+    assetFailures: [],
   }
 }
 

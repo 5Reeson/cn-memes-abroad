@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import sharp, { type Metadata, type Sharp } from 'sharp'
 
 import type {
+  PreparedAssetFailure,
   PreparedPackView,
   PrepareProgress,
   PreparedStickerView,
@@ -12,15 +13,20 @@ import type {
   StickerCollection,
 } from '../../shared/domain.js'
 import { planStickerPacks } from '../../shared/pack-plan.js'
+import {
+  MAX_ANIMATION_DURATION_MS,
+  DEFAULT_ZERO_DELAY_GIF_FRAME_DURATION_MS,
+  MIN_ANIMATION_FRAME_DURATION_MS,
+  normalizeAnimationTiming,
+  type NormalizedAnimationTiming,
+} from './animation-timing.js'
 
-export const WHATSAPP_CONVERSION_VERSION = 'wa-webp-v2'
+export const WHATSAPP_CONVERSION_VERSION = 'wa-webp-v4'
 const STICKER_DIMENSION = 512
 const TRAY_DIMENSION = 96
 const STATIC_LIMIT_BYTES = 100 * 1024
 const ANIMATED_LIMIT_BYTES = 500 * 1024
 const TRAY_LIMIT_BYTES = 50 * 1024
-const MAX_ANIMATION_DURATION_MS = 10_000
-const MIN_FRAME_DURATION_MS = 8
 // Bounded WebP compression attempts, from better image quality to smaller files.
 // These values are encoder quality percentages, not sticker counts or pack sizes.
 const STATIC_WEBP_QUALITY_STEPS = [90, 82, 74, 66, 58, 50, 42, 34, 28]
@@ -51,12 +57,7 @@ async function writeAtomically(path: string, contents: Buffer): Promise<void> {
   await chmod(path, 0o600)
 }
 
-function animationDuration(metadata: Metadata): number | undefined {
-  if (!metadata.pages || metadata.pages <= 1) return undefined
-  return metadata.delay?.reduce((total, delay) => total + delay, 0)
-}
-
-function validateAnimation(metadata: Metadata, displayName: string): number {
+function readAnimationTiming(metadata: Metadata, displayName: string): NormalizedAnimationTiming {
   const delays = metadata.delay ?? []
   if (!metadata.pages || metadata.pages <= 1) {
     throw new Error(`${displayName} 被标记为动态图片，但解码后没有多个帧`)
@@ -64,14 +65,17 @@ function validateAnimation(metadata: Metadata, displayName: string): number {
   if (delays.length !== metadata.pages) {
     throw new Error(`${displayName} 无法读取完整的动画帧时长`)
   }
-  if (delays.some((delay) => delay < MIN_FRAME_DURATION_MS)) {
-    throw new Error(`${displayName} 包含短于 8ms 的动画帧`)
+  try {
+    return normalizeAnimationTiming(delays, {
+      ...(metadata.format === 'gif'
+        ? { zeroDelayMs: DEFAULT_ZERO_DELAY_GIF_FRAME_DURATION_MS }
+        : {}),
+    })
+  } catch (error) {
+    throw new Error(`${displayName} ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    })
   }
-  const durationMs = delays.reduce((total, delay) => total + delay, 0)
-  if (durationMs > MAX_ANIMATION_DURATION_MS) {
-    throw new Error(`${displayName} 动画总时长超过 10 秒`)
-  }
-  return durationMs
 }
 
 function resizeToStickerCanvas(pipeline: Sharp, metadata: Metadata, animated: boolean): Sharp {
@@ -111,10 +115,63 @@ async function validateCachedSticker(
     ) {
       return undefined
     }
-    return { assetId: '', sizeBytes: file.size, durationMs: animationDuration(metadata) }
+    const durationMs = animated ? validateEncodedAnimation(metadata) : undefined
+    return { assetId: '', sizeBytes: file.size, durationMs }
   } catch {
     return undefined
   }
+}
+
+function validateEncodedAnimation(metadata: Metadata): number {
+  const delays = metadata.delay ?? []
+  if (!metadata.pages || metadata.pages <= 1 || delays.length !== metadata.pages) {
+    throw new Error('编码后的动画帧数据不完整')
+  }
+  if (delays.some((delay) => delay < MIN_ANIMATION_FRAME_DURATION_MS)) {
+    throw new Error('编码后的动画仍包含短于 8ms 的帧')
+  }
+  const durationMs = delays.reduce((total, delay) => total + delay, 0)
+  if (durationMs > MAX_ANIMATION_DURATION_MS) {
+    throw new Error('编码后的动画总时长超过 10 秒')
+  }
+  return durationMs
+}
+
+async function validateEncodedSticker(
+  contents: Buffer,
+  animated: boolean,
+): Promise<number | undefined> {
+  const metadata = await sharp(contents, {
+    animated,
+    pages: animated ? -1 : 1,
+  }).metadata()
+  const height = animated ? metadata.pageHeight : metadata.height
+  if (
+    metadata.format !== 'webp' ||
+    metadata.width !== STICKER_DIMENSION ||
+    height !== STICKER_DIMENSION
+  ) {
+    throw new Error('编码后的表情尺寸或格式无效')
+  }
+  return animated ? validateEncodedAnimation(metadata) : undefined
+}
+
+async function prepareKeptFrames(
+  asset: StickerAsset,
+  metadata: Metadata,
+  keptFrameIndexes: number[],
+): Promise<Buffer[]> {
+  return Promise.all(
+    keptFrameIndexes.map((frameIndex) =>
+      resizeToStickerCanvas(
+        sharp(asset.originalPath, { page: frameIndex, pages: 1 }),
+        metadata,
+        true,
+      )
+        .png()
+        .toBuffer(),
+    ),
+  )
 }
 
 async function convertSticker(
@@ -122,36 +179,48 @@ async function convertSticker(
   cacheDirectory: string,
 ): Promise<PreparedSticker> {
   const outputPath = join(cacheDirectory, `${conversionKey(asset)}.webp`)
-  const cached = await validateCachedSticker(outputPath, asset.animated)
-  if (cached) return { ...cached, assetId: asset.id, outputPath }
-
   const inputMetadata = await sharp(asset.originalPath, {
     animated: asset.animated,
     pages: asset.animated ? -1 : 1,
   }).metadata()
-  const durationMs = asset.animated
-    ? validateAnimation(inputMetadata, asset.displayName)
-    : undefined
+  const timing = asset.animated ? readAnimationTiming(inputMetadata, asset.displayName) : undefined
+  const cached = await validateCachedSticker(outputPath, asset.animated)
+  if (cached) {
+    return {
+      ...cached,
+      assetId: asset.id,
+      outputPath,
+      ...(timing?.adjusted ? { animationTimingAdjusted: true } : {}),
+      ...(timing?.droppedFrameCount ? { droppedFrameCount: timing.droppedFrameCount } : {}),
+    }
+  }
+  const keptFrames =
+    timing && (timing.droppedFrameCount > 0 || inputMetadata.format === 'gif')
+      ? await prepareKeptFrames(asset, inputMetadata, timing.keptFrameIndexes)
+      : undefined
   const qualitySteps = asset.animated ? ANIMATED_WEBP_QUALITY_STEPS : STATIC_WEBP_QUALITY_STEPS
   const limit = asset.animated ? ANIMATED_LIMIT_BYTES : STATIC_LIMIT_BYTES
   let smallest: Buffer | undefined
 
   const encode = async (quality: number, exhaustive: boolean): Promise<Buffer> => {
-    const pipeline = resizeToStickerCanvas(
-      sharp(asset.originalPath, {
-        animated: asset.animated,
-        pages: asset.animated ? -1 : 1,
-        limitInputPixels: 128 * 1024 * 1024,
-      }),
-      inputMetadata,
-      asset.animated,
-    )
+    const pipeline = keptFrames
+      ? sharp(keptFrames, { join: { animated: true } })
+      : resizeToStickerCanvas(
+          sharp(asset.originalPath, {
+            animated: asset.animated,
+            pages: asset.animated ? -1 : 1,
+            limitInputPixels: 128 * 1024 * 1024,
+          }),
+          inputMetadata,
+          asset.animated,
+        )
     return pipeline
       .webp({
         quality,
         alphaQuality: Math.max(quality, 70),
         effort: exhaustive ? 6 : 2,
         loop: asset.animated ? (inputMetadata.loop ?? 0) : undefined,
+        delay: timing?.delays,
         minSize: asset.animated && exhaustive,
         mixed: asset.animated && exhaustive,
       })
@@ -162,20 +231,31 @@ async function convertSticker(
     const candidate = await encode(quality, false)
     if (!smallest || candidate.length < smallest.length) smallest = candidate
     if (candidate.length <= limit) {
+      const durationMs = await validateEncodedSticker(candidate, asset.animated)
       await writeAtomically(outputPath, candidate)
-      return { assetId: asset.id, outputPath, sizeBytes: candidate.length, durationMs }
+      return {
+        assetId: asset.id,
+        outputPath,
+        sizeBytes: candidate.length,
+        durationMs,
+        ...(timing?.adjusted ? { animationTimingAdjusted: true } : {}),
+        ...(timing?.droppedFrameCount ? { droppedFrameCount: timing.droppedFrameCount } : {}),
+      }
     }
   }
 
   const exhaustiveCandidate = await encode(qualitySteps.at(-1)!, true)
   if (!smallest || exhaustiveCandidate.length < smallest.length) smallest = exhaustiveCandidate
   if (exhaustiveCandidate.length <= limit) {
+    const durationMs = await validateEncodedSticker(exhaustiveCandidate, asset.animated)
     await writeAtomically(outputPath, exhaustiveCandidate)
     return {
       assetId: asset.id,
       outputPath,
       sizeBytes: exhaustiveCandidate.length,
       durationMs,
+      ...(timing?.adjusted ? { animationTimingAdjusted: true } : {}),
+      ...(timing?.droppedFrameCount ? { droppedFrameCount: timing.droppedFrameCount } : {}),
     }
   }
 
@@ -215,6 +295,24 @@ function validatePackMetadata(collection: StickerCollection): void {
   }
 }
 
+function preparedPackId(
+  fallbackId: string,
+  collectionId: string,
+  mediaKind: 'static' | 'animated',
+  stickers: PreparedSticker[],
+  byId: ReadonlyMap<string, StickerAsset>,
+): string {
+  if (stickers.length === 0) return fallbackId
+  const selected = stickers.map((sticker) => byId.get(sticker.assetId)!)
+  const digest = createHash('sha256')
+    .update(
+      `${collectionId}|${mediaKind}|${selected.map((asset) => `${asset.id}:${asset.sha256}`).join('|')}`,
+    )
+    .digest('hex')
+    .slice(0, 16)
+  return `pack-${digest}`
+}
+
 export class PackPreparer {
   async prepare(
     collection: StickerCollection,
@@ -234,43 +332,75 @@ export class PackPreparer {
       const assets = pack.assetIds.map((id) => byId.get(id)!)
       const suffix = plan.packs.length > 1 ? ` ${packIndex + 1}` : ''
       const name = `${collection.title.slice(0, 128 - suffix.length)}${suffix}`
-      try {
-        const stickers: PreparedSticker[] = []
-        for (const asset of assets) {
-          try {
-            stickers.push(await convertSticker(asset, cacheDirectory))
-          } finally {
-            completed += 1
-            onProgress?.({
-              completed,
-              total,
-              currentName: asset.displayName,
-              packIndex: packIndex + 1,
-              packCount: plan.packs.length,
-            })
-          }
+      const stickers: PreparedSticker[] = []
+      const assetFailures: PreparedAssetFailure[] = []
+      for (const asset of assets) {
+        try {
+          stickers.push(await convertSticker(asset, cacheDirectory))
+        } catch (error) {
+          assetFailures.push({
+            assetId: asset.id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        } finally {
+          completed += 1
+          onProgress?.({
+            completed,
+            total,
+            currentName: asset.displayName,
+            packIndex: packIndex + 1,
+            packCount: plan.packs.length,
+          })
         }
-        const trayPath = join(trayDirectory, `${pack.id}.png`)
-        const traySizeBytes = await prepareTrayIcon(assets[0]!, trayPath)
+      }
+
+      if (stickers.length < 3) {
+        const id = assetFailures.length
+          ? preparedPackId(pack.id, collection.id, pack.mediaKind, stickers, byId)
+          : pack.id
         preparedPacks.push({
-          id: pack.id,
+          id,
+          name,
+          publisher: collection.publisher,
+          mediaKind: pack.mediaKind,
+          stickers,
+          trayPath: '',
+          traySizeBytes: 0,
+          assetFailures,
+          status: 'failed',
+          error: `成功准备的${pack.mediaKind === 'animated' ? '动图' : '静态表情'}只有 ${stickers.length} 张，至少需要 3 张`,
+        })
+        continue
+      }
+
+      const trayAsset = byId.get(stickers[0]!.assetId)!
+      const id = assetFailures.length
+        ? preparedPackId(pack.id, collection.id, pack.mediaKind, stickers, byId)
+        : pack.id
+      const trayPath = join(trayDirectory, `${id}.png`)
+      try {
+        const traySizeBytes = await prepareTrayIcon(trayAsset, trayPath)
+        preparedPacks.push({
+          id,
           name,
           publisher: collection.publisher,
           mediaKind: pack.mediaKind,
           stickers,
           trayPath,
           traySizeBytes,
+          assetFailures,
           status: 'prepared',
         })
       } catch (error) {
         preparedPacks.push({
-          id: pack.id,
+          id,
           name,
           publisher: collection.publisher,
           mediaKind: pack.mediaKind,
-          stickers: [],
+          stickers,
           trayPath: '',
           traySizeBytes: 0,
+          assetFailures,
           status: 'failed',
           error: error instanceof Error ? error.message : String(error),
         })

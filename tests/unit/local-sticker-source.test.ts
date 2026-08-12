@@ -269,6 +269,36 @@ describe('LocalStickerSource', () => {
     })
   })
 
+  it('records a player-compatible duration for zero-delay GIFs', async () => {
+    const animated = join(temporaryDirectory, 'zero-delay.gif')
+    const collectionDirectory = join(temporaryDirectory, 'collection')
+    await sharp({
+      create: {
+        width: 6,
+        height: 18,
+        pageHeight: 6,
+        channels: 4,
+        background: '#3366cc',
+      },
+    })
+      .gif({ delay: [0, 0, 0], loop: 0, keepDuplicateFrames: true })
+      .toFile(animated)
+    const metadata = await sharp(animated, { animated: true, pages: -1 }).metadata()
+
+    const result = await new LocalStickerSource().import({
+      collection: collection(),
+      collectionDirectory,
+      inputs: [animated],
+    })
+
+    expect(result.failures).toEqual([])
+    expect(result.assets[0]).toMatchObject({
+      animated: true,
+      durationMs: metadata.pages! * 100,
+      mimeType: 'image/gif',
+    })
+  })
+
   it('removes originals created by an import that is canceled before manifest persistence', async () => {
     const first = join(temporaryDirectory, 'first.png')
     const second = join(temporaryDirectory, 'second.png')

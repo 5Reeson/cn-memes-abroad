@@ -981,6 +981,16 @@ button:disabled {
   line-height: 1.5;
 }
 
+.pack-repair-notice {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .pack-preview-list {
   display: grid;
   gap: 8px;
@@ -1078,6 +1088,10 @@ button:disabled {
   margin: -6px 0 3px;
   color: var(--danger);
   font-size: 10px;
+}
+
+.pack-error.is-warning {
+  color: #8a5c13;
 }
 
 .pack-empty-hint {
@@ -1180,6 +1194,69 @@ button:disabled {
 .send-summary strong {
   display: block;
   font-size: 12px;
+}
+
+.credential-mode-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.credential-mode-picker legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.credential-mode-picker label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.credential-mode-picker label.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.credential-mode-picker input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.credential-mode-picker label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.credential-mode-picker label strong {
+  font-size: 10px;
+}
+
+.credential-mode-picker label small,
+.credential-mode-picker > p {
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.credential-mode-picker > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.credential-mode-picker:disabled label {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .connection-icon,

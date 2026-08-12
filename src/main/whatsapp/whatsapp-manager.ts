@@ -11,10 +11,12 @@ import type {
   SendPackProgress,
   SendPackReceipt,
   WhatsAppConnectionView,
+  WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
 import type { PreparedPack } from '../packs/pack-preparer.js'
-import { EncryptedAuthStore, hasPairedCredentials } from './encrypted-auth-store.js'
+import { hasPairedCredentials } from './auth-store.js'
+import { CredentialAuthStore } from './credential-auth-store.js'
 import { sendPreparedStickerPack } from './native-pack.js'
 import { SendReceiptStore } from './send-receipt-store.js'
 
@@ -29,19 +31,25 @@ function disconnectStatusCode(error: unknown): number | undefined {
 
 export class WhatsAppManager {
   private socket: WASocket | undefined
-  private view: WhatsAppConnectionView = { phase: 'disconnected', hasSession: false }
+  private view: WhatsAppConnectionView = {
+    phase: 'disconnected',
+    hasSession: false,
+    credentialMode: 'keychain',
+    canChangeCredentialMode: true,
+  }
   private intentionalClose = false
   private allowedGroupIds = new Set<string>()
   private sentReceipts = new Map<string, string>()
 
   constructor(
-    private readonly authStore: EncryptedAuthStore,
+    private readonly authStore: CredentialAuthStore,
     private readonly receiptStore: SendReceiptStore,
     private readonly onStatus: (view: WhatsAppConnectionView) => void,
   ) {}
 
   async initialize(): Promise<void> {
     try {
+      await this.authStore.initialize()
       this.update({ phase: 'disconnected', hasSession: await this.authStore.hasSession() })
     } catch (error) {
       this.update({
@@ -56,9 +64,44 @@ export class WhatsAppManager {
     return this.view
   }
 
-  private update(next: WhatsAppConnectionView): void {
-    this.view = next
-    this.onStatus(next)
+  private update(
+    next: Omit<WhatsAppConnectionView, 'credentialMode' | 'canChangeCredentialMode'>,
+  ): void {
+    this.view = {
+      ...next,
+      credentialMode: this.authStore.getMode(),
+      canChangeCredentialMode:
+        !next.hasSession &&
+        ![
+          'connecting',
+          'reconnecting',
+          'awaiting-qr',
+          'awaiting-pairing-code',
+          'connected',
+        ].includes(next.phase),
+    }
+    this.onStatus(this.view)
+  }
+
+  async setCredentialMode(mode: WhatsAppCredentialMode): Promise<WhatsAppConnectionView> {
+    if (
+      this.socket ||
+      ['connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code', 'connected'].includes(
+        this.view.phase,
+      )
+    ) {
+      throw new Error('请先断开 WhatsApp 连接，再切换凭证存储方式')
+    }
+    await this.authStore.setMode(mode)
+    this.update({
+      phase: this.view.phase === 'logged-out' ? 'logged-out' : 'disconnected',
+      hasSession: false,
+      message:
+        mode === 'keychain'
+          ? '将使用 macOS 钥匙串保护 WhatsApp session。'
+          : '将使用权限受限的本地明文文件保存 WhatsApp session。',
+    })
+    return this.view
   }
 
   private selfTarget(socket = this.socket): WhatsAppTarget | undefined {
@@ -106,7 +149,7 @@ export class WhatsAppManager {
     this.update({
       phase: 'connecting',
       hasSession,
-      message: hasSession ? '正在复用已保存的加密 session…' : '正在建立安全连接…',
+      message: hasSession ? '正在复用已保存的 session…' : '正在建立连接…',
     })
 
     const socket = makeWASocket({
@@ -205,7 +248,7 @@ export class WhatsAppManager {
     this.update({
       phase: 'disconnected',
       hasSession,
-      message: hasSession ? '连接已断开；加密 session 仍保留在本机。' : '连接已取消。',
+      message: hasSession ? '连接已断开；session 仍保留在本机。' : '连接已取消。',
     })
     return this.view
   }

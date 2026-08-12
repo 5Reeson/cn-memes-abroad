@@ -131,6 +131,8 @@ export interface PreparedSnapshotPayload {
   mimeType: string
   animated: boolean
   durationMs?: number
+  animationTimingAdjusted?: boolean
+  droppedFrameCount?: number
 }
 
 export type PreparedSnapshotConfiguration =
@@ -159,6 +161,8 @@ export interface PreparedExportItemView {
   sizeBytes: number
   animated: boolean
   durationMs?: number
+  animationTimingAdjusted?: boolean
+  droppedFrameCount?: number
 }
 
 export interface PreparedExportGroupView {
@@ -178,6 +182,8 @@ export interface PrepareExportSummary {
   publisher?: string
   groups: PreparedExportGroupView[]
   warnings: string[]
+  animationRepairs: AnimationRepairView[]
+  assetFailures: PreparedAssetFailure[]
 }
 
 export interface PreparedSnapshotSummary {
@@ -295,6 +301,13 @@ export interface PreparedStickerView {
   assetId: string
   sizeBytes: number
   durationMs?: number
+  animationTimingAdjusted?: boolean
+  droppedFrameCount?: number
+}
+
+export interface PreparedAssetFailure {
+  assetId: string
+  message: string
 }
 
 export interface PreparedPackView {
@@ -304,12 +317,19 @@ export interface PreparedPackView {
   mediaKind: 'static' | 'animated'
   stickers: PreparedStickerView[]
   traySizeBytes: number
+  assetFailures: PreparedAssetFailure[]
   status: 'prepared' | 'failed'
   error?: string
 }
 
 export interface PreparePacksSummary {
   packs: PreparedPackView[]
+  animationRepairs: AnimationRepairView[]
+}
+
+export interface AnimationRepairView {
+  assetId: string
+  droppedFrameCount: number
 }
 
 export interface PrepareProgress {
@@ -330,6 +350,8 @@ export type WhatsAppConnectionPhase =
   | 'logged-out'
   | 'error'
 
+export type WhatsAppCredentialMode = 'keychain' | 'plaintext'
+
 export interface WhatsAppTarget {
   id: string
   name: string
@@ -340,6 +362,8 @@ export interface WhatsAppTarget {
 export interface WhatsAppConnectionView {
   phase: WhatsAppConnectionPhase
   hasSession: boolean
+  credentialMode: WhatsAppCredentialMode
+  canChangeCredentialMode: boolean
   selfTarget?: WhatsAppTarget
   qrDataUrl?: string
   pairingCode?: string

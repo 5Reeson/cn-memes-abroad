@@ -6,9 +6,11 @@ import { basename, extname, join } from 'node:path'
 import sharp from 'sharp'
 
 import {
+  type AnimationRepairView,
   type ExportTask,
   type PrepareExportSummary,
   type PrepareProgress,
+  type PreparedAssetFailure,
   type PreparedExportGroupView,
   type PreparedSnapshotConfiguration,
   type PreparedSnapshotDestination,
@@ -36,6 +38,8 @@ export interface PreparedExportPayload {
   mimeType: string
   animated: boolean
   durationMs?: number
+  animationTimingAdjusted?: boolean
+  droppedFrameCount?: number
 }
 
 export interface PreparedExportGroup {
@@ -58,6 +62,8 @@ export interface PreparedExportResult {
   groups: PreparedExportGroup[]
   conversionVersion: string
   warnings: string[]
+  animationRepairs: AnimationRepairView[]
+  assetFailures: PreparedAssetFailure[]
 }
 
 export class ExportPreparer {
@@ -105,11 +111,15 @@ export class ExportPreparer {
             sizeBytes: payload.sizeBytes,
             animated: payload.animated,
             ...(payload.durationMs === undefined ? {} : { durationMs: payload.durationMs }),
+            ...(payload.animationTimingAdjusted ? { animationTimingAdjusted: true } : {}),
+            ...(payload.droppedFrameCount ? { droppedFrameCount: payload.droppedFrameCount } : {}),
           })),
         status: group.status,
         ...(group.error === undefined ? {} : { error: group.error }),
       })),
       warnings: prepared.warnings,
+      animationRepairs: prepared.animationRepairs,
+      assetFailures: prepared.assetFailures,
     }
   }
 
@@ -154,6 +164,15 @@ export class ExportPreparer {
       groups,
       conversionVersion: WHATSAPP_CONVERSION_VERSION,
       warnings: plan.warnings.map((warning) => warning.message),
+      animationRepairs: packs.flatMap((pack) =>
+        pack.stickers
+          .filter((sticker) => sticker.animationTimingAdjusted)
+          .map((sticker) => ({
+            assetId: sticker.assetId,
+            droppedFrameCount: sticker.droppedFrameCount ?? 0,
+          })),
+      ),
+      assetFailures: packs.flatMap((pack) => pack.assetFailures),
     }
     return { ...result, fingerprint: fingerprintPrepared(result) }
   }
@@ -163,11 +182,15 @@ export class ExportPreparer {
     plannedAssetIds: string[],
   ): Promise<PreparedExportGroup> {
     if (pack.status === 'failed') {
+      const failedAssetIds = [
+        ...pack.stickers.map((sticker) => sticker.assetId),
+        ...pack.assetFailures.map((failure) => failure.assetId),
+      ]
       return {
         id: pack.id,
         name: pack.name,
         mediaKind: pack.mediaKind,
-        assetIds: plannedAssetIds,
+        assetIds: plannedAssetIds.length > 0 ? plannedAssetIds : failedAssetIds,
         payloads: [],
         status: 'failed',
         error: pack.error ?? '表情包准备失败',
@@ -185,6 +208,8 @@ export class ExportPreparer {
         mimeType: 'image/webp',
         animated: pack.mediaKind === 'animated',
         ...(sticker.durationMs === undefined ? {} : { durationMs: sticker.durationMs }),
+        ...(sticker.animationTimingAdjusted ? { animationTimingAdjusted: true } : {}),
+        ...(sticker.droppedFrameCount ? { droppedFrameCount: sticker.droppedFrameCount } : {}),
       })),
     )
     const trayStat = await stat(pack.trayPath)
@@ -296,6 +321,8 @@ export class ExportPreparer {
           ? LOCAL_ORIGINAL_VERSION
           : LOCAL_WEBP_CONVERSION_VERSION,
       warnings: [] as string[],
+      animationRepairs: [] as AnimationRepairView[],
+      assetFailures: [] as PreparedAssetFailure[],
     }
     return { ...result, fingerprint: fingerprintPrepared(result) }
   }
@@ -407,6 +434,8 @@ function fingerprintPrepared(prepared: Omit<PreparedExportResult, 'fingerprint'>
             mimeType: payload.mimeType,
             animated: payload.animated,
             durationMs: payload.durationMs,
+            animationTimingAdjusted: payload.animationTimingAdjusted,
+            droppedFrameCount: payload.droppedFrameCount,
           })),
         })),
       }),

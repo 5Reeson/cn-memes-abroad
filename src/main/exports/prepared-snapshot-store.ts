@@ -258,6 +258,8 @@ export function toPreparedSnapshotView(
           sizeBytes: payload.sizeBytes,
           animated: payload.animated,
           ...(payload.durationMs === undefined ? {} : { durationMs: payload.durationMs }),
+          ...(payload.animationTimingAdjusted ? { animationTimingAdjusted: true } : {}),
+          ...(payload.droppedFrameCount ? { droppedFrameCount: payload.droppedFrameCount } : {}),
         })),
       status: 'prepared',
     })),
@@ -342,7 +344,8 @@ function assertSavablePreparation(prepared: PreparedExportResult): void {
   if (
     prepared.groups.length === 0 ||
     prepared.groups.some((group) => group.status !== 'prepared') ||
-    prepared.warnings.length > 0
+    prepared.warnings.length > 0 ||
+    prepared.assetFailures.length > 0
   ) {
     throw new Error('准备结果仍有失败或规则提示，不能保存为完整 snapshot')
   }
@@ -413,6 +416,18 @@ function assertSnapshotPayload(value: unknown): asserts value is PreparedSnapsho
   ) {
     throw new Error('Invalid snapshot payload duration')
   }
+  if (
+    value.animationTimingAdjusted !== undefined &&
+    typeof value.animationTimingAdjusted !== 'boolean'
+  ) {
+    throw new Error('Invalid snapshot animation repair flag')
+  }
+  if (
+    value.droppedFrameCount !== undefined &&
+    (!Number.isInteger(value.droppedFrameCount) || (value.droppedFrameCount as number) < 0)
+  ) {
+    throw new Error('Invalid snapshot dropped frame count')
+  }
 }
 
 function assertConfiguration(
@@ -464,6 +479,8 @@ function toSnapshotPayload(
     mimeType: payload.mimeType,
     animated: payload.animated,
     ...(payload.durationMs === undefined ? {} : { durationMs: payload.durationMs }),
+    ...(payload.animationTimingAdjusted ? { animationTimingAdjusted: true } : {}),
+    ...(payload.droppedFrameCount ? { droppedFrameCount: payload.droppedFrameCount } : {}),
   }
 }
 

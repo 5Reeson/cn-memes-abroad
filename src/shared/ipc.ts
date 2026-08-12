@@ -18,6 +18,7 @@ import type {
   SendPackProgress,
   SendPacksSummary,
   WhatsAppConnectionView,
+  WhatsAppCredentialMode,
   WhatsAppTarget,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
@@ -55,6 +56,7 @@ export const IPC_CHANNELS = {
   whatsappGetStatus: 'whatsapp:get-status',
   whatsappConnect: 'whatsapp:connect',
   whatsappDisconnect: 'whatsapp:disconnect',
+  whatsappSetCredentialMode: 'whatsapp:set-credential-mode',
   whatsappLogout: 'whatsapp:logout',
   whatsappListGroups: 'whatsapp:list-groups',
   whatsappSendPacks: 'whatsapp:send-packs',
@@ -92,7 +94,8 @@ export interface StickerAppApi {
   getWhatsAppStatus(): Promise<WhatsAppConnectionView>
   connectWhatsApp(pairingPhone?: string): Promise<WhatsAppConnectionView>
   disconnectWhatsApp(): Promise<WhatsAppConnectionView>
-  logoutWhatsApp(): Promise<WhatsAppConnectionView>
+  setWhatsAppCredentialMode(mode: WhatsAppCredentialMode): Promise<WhatsAppConnectionView>
+  logoutWhatsApp(confirmed: boolean): Promise<WhatsAppConnectionView>
   listWhatsAppGroups(): Promise<WhatsAppTarget[]>
   sendWhatsAppPacks(targetId: string, packIds?: string[]): Promise<SendPacksSummary>
   onWhatsAppStatus(listener: (status: WhatsAppConnectionView) => void): () => void
