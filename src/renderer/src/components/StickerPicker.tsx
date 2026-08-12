@@ -17,8 +17,13 @@ import { SquareIcon as Square } from '@phosphor-icons/react/Square'
 import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type { CollectionView, StickerSourceKind } from '../../../shared/domain.js'
+import { ProgressiveImage } from './ProgressiveImage.js'
+import { useProgressiveCount } from './useProgressiveCount.js'
 
 type Asset = CollectionView['assets'][number]
+
+const INITIAL_TILE_COUNT = 72
+const TILE_BATCH_SIZE = 48
 
 export interface StickerPickerProps {
   assets: Asset[]
@@ -69,29 +74,52 @@ export function StickerPicker({
     }
     return [...options].sort((left, right) => left[1].localeCompare(right[1], 'zh-Hans-CN'))
   }, [assets])
-  const baseOrder =
-    mode === 'export'
-      ? [...orderedIds, ...assets.map((asset) => asset.id).filter((id) => !selected.has(id))]
-      : assets
-          .slice()
-          .sort((a, b) => a.userOrder - b.userOrder)
-          .map((asset) => asset.id)
-  const orderIndex = new Map(baseOrder.map((id, index) => [id, index]))
-  const visible = assets
-    .filter(
-      (asset) =>
-        !query.trim() ||
-        asset.displayName
-          .toLocaleLowerCase('zh-Hans-CN')
-          .includes(query.trim().toLocaleLowerCase('zh-Hans-CN')),
-    )
-    .filter((asset) => media === 'all' || asset.animated === (media === 'animated'))
-    .filter((asset) => source === 'all' || sourceKey(asset).includes(source))
-    .sort(
-      (left, right) =>
-        (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-        (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-    )
+  const mediaCounts = useMemo(
+    () => ({
+      static: assets.filter((asset) => !asset.animated).length,
+      animated: assets.filter((asset) => asset.animated).length,
+    }),
+    [assets],
+  )
+  const baseOrder = useMemo(
+    () =>
+      mode === 'export'
+        ? [...orderedIds, ...assets.map((asset) => asset.id).filter((id) => !selected.has(id))]
+        : assets
+            .slice()
+            .sort((a, b) => a.userOrder - b.userOrder)
+            .map((asset) => asset.id),
+    [assets, mode, orderedIds, selected],
+  )
+  const visible = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase('zh-Hans-CN')
+    const orderIndex = new Map(baseOrder.map((id, index) => [id, index]))
+    return assets
+      .filter(
+        (asset) =>
+          !normalizedQuery ||
+          asset.displayName.toLocaleLowerCase('zh-Hans-CN').includes(normalizedQuery),
+      )
+      .filter((asset) => media === 'all' || asset.animated === (media === 'animated'))
+      .filter((asset) => source === 'all' || sourceKey(asset).includes(source))
+      .sort(
+        (left, right) =>
+          (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+          (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+      )
+  }, [assets, baseOrder, media, query, source])
+  const filterKey = `${query}\u0000${media}\u0000${source}\u0000${assets.length}`
+  const progressive = useProgressiveCount({
+    total: visible.length,
+    initialCount: INITIAL_TILE_COUNT,
+    batchSize: TILE_BATCH_SIZE,
+    resetKey: filterKey,
+  })
+  const renderedAssets = visible.slice(0, progressive.visibleCount)
+  const selectedOrder = useMemo(
+    () => new Map(selectedIds.map((id, index) => [id, index])),
+    [selectedIds],
+  )
 
   function toggle(id: string) {
     if (selected.has(id)) {
@@ -131,8 +159,8 @@ export function StickerPicker({
               {value === 'all'
                 ? `全部 ${assets.length}`
                 : value === 'static'
-                  ? `静态 ${assets.filter((asset) => !asset.animated).length}`
-                  : `动图 ${assets.filter((asset) => asset.animated).length}`}
+                  ? `静态 ${mediaCounts.static}`
+                  : `动图 ${mediaCounts.animated}`}
             </button>
           ))}
         </div>
@@ -187,14 +215,17 @@ export function StickerPicker({
       </div>
       {visible.length ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={dragEnd}>
-          <SortableContext items={visible.map((asset) => asset.id)} strategy={rectSortingStrategy}>
+          <SortableContext
+            items={renderedAssets.map((asset) => asset.id)}
+            strategy={rectSortingStrategy}
+          >
             <div className="picker-grid">
-              {visible.map((asset) => (
+              {renderedAssets.map((asset) => (
                 <PickerTile
                   key={asset.id}
                   asset={asset}
                   selected={selected.has(asset.id)}
-                  index={selectedIds.indexOf(asset.id)}
+                  index={selectedOrder.get(asset.id) ?? -1}
                   onToggle={() => toggle(asset.id)}
                   onPreview={() => setPreview(asset)}
                   dragEnabled={mode === 'library' || selected.has(asset.id)}
@@ -205,6 +236,16 @@ export function StickerPicker({
         </DndContext>
       ) : (
         <div className="picker-empty">没有符合当前筛选条件的表情。</div>
+      )}
+      {progressive.hasMore && (
+        <button
+          className="progressive-load-more"
+          type="button"
+          ref={progressive.sentinelRef}
+          onClick={progressive.showMore}
+        >
+          已显示 {progressive.visibleCount} / {visible.length} 张，继续加载
+        </button>
       )}
       {preview && (
         <div className="preview-backdrop" role="presentation" onClick={() => setPreview(null)}>
@@ -218,7 +259,7 @@ export function StickerPicker({
             <button type="button" onClick={() => setPreview(null)} aria-label="关闭预览">
               <X size={18} />
             </button>
-            <img src={preview.previewUrl} alt={preview.displayName} />
+            <ProgressiveImage src={preview.previewUrl} alt={preview.displayName} eager />
             <strong>{preview.displayName}</strong>
             <span>
               {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
@@ -322,7 +363,7 @@ function PickerTile({
       className={`picker-tile${selected ? ' is-selected' : ''}${sortable.isDragging ? ' is-dragging' : ''}`}
     >
       <button className="picker-preview" type="button" onClick={onPreview}>
-        <img src={asset.previewUrl} alt={asset.displayName} />
+        <ProgressiveImage src={asset.previewUrl} alt={asset.displayName} />
       </button>
       <button className="picker-select" type="button" aria-pressed={selected} onClick={onToggle}>
         {selected ? <span>{index + 1}</span> : <Square size={15} />}

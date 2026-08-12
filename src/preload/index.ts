@@ -18,6 +18,7 @@ const api: StickerAppApi = {
   resetExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.resetExportTask),
   chooseExportDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseExportDirectory),
   prepareExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.prepareExportTask),
+  cancelExportPreparation: () => ipcRenderer.invoke(IPC_CHANNELS.cancelExportPreparation),
   transferLocalExport: () => ipcRenderer.invoke(IPC_CHANNELS.transferLocalExport),
   savePreparedSnapshot: (forceDuplicate?: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.savePreparedSnapshot, forceDuplicate),

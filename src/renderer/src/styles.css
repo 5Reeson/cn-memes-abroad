@@ -2505,6 +2505,60 @@ button:disabled {
   object-fit: contain;
 }
 
+.progressive-image {
+  background: var(--surface-muted);
+}
+
+.progressive-image[data-load-state='loaded'] {
+  background: transparent;
+}
+
+.progressive-image[data-load-state='idle'],
+.progressive-image[data-load-state='loading'] {
+  color: transparent;
+}
+
+.transfer-prepare-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 14px;
+}
+
+.transfer-prepare-progress > div:first-child,
+.transfer-prepare-progress > .progress-line {
+  grid-column: 1;
+}
+
+.transfer-prepare-progress > button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.progressive-image[data-load-state='failed'] {
+  background:
+    linear-gradient(135deg, transparent 47%, var(--line-strong) 48% 52%, transparent 53%),
+    var(--surface-muted);
+}
+
+.progressive-load-more {
+  display: block;
+  min-height: 38px;
+  margin: 18px auto 0;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  font-size: 10px;
+}
+
+.progressive-load-more:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
 .picker-select,
 .picker-drag {
   position: absolute;

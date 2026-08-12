@@ -22,6 +22,23 @@ afterEach(async () => {
 })
 
 describe('ExportPreparer', () => {
+  it('does not start an already canceled export preparation', async () => {
+    const root = await temporaryDirectory()
+    const asset = await fixtureAsset(root, 0, false, 'A.png')
+    const controller = new AbortController()
+    controller.abort(new DOMException('cancel fixture', 'AbortError'))
+
+    await expect(
+      new ExportPreparer().prepare(
+        localTask([asset.id], 50),
+        collection([asset]),
+        root,
+        undefined,
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('uses task-local order and local folder grouping without applying WhatsApp pack rules', async () => {
     const root = await temporaryDirectory()
     const assets = await Promise.all([

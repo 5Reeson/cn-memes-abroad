@@ -14,6 +14,7 @@ import {
   toPreparedSnapshotView,
 } from './exports/prepared-snapshot-store.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
+import { AssetPreviewIndex } from './library/asset-preview-index.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
 import { WechatLegacySource } from './sources/wechat-legacy/wechat-legacy-source.js'
@@ -64,11 +65,15 @@ let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
 let wechat4Source: Wechat4StickerSource
+const assetPreviewIndex = new AssetPreviewIndex()
 const localSource = new LocalStickerSource()
 const legacyWechatSource = new WechatLegacySource()
 const packPreparer = new PackPreparer()
 const exportPreparer = new ExportPreparer(packPreparer)
 let mutationQueue: Promise<unknown> = Promise.resolve()
+let exportPreparationController: AbortController | null = null
+let exportPreparationTask: Promise<{ task: ExportTask; prepared: PreparedExportResult }> | null =
+  null
 let legacyWechatImportController: AbortController | null = null
 let wechat4ImportController: AbortController | null = null
 let wechat4ImportTask: Promise<ImportSummary> | null = null
@@ -115,6 +120,7 @@ function snapshotPreviewUrl(snapshotId: string, payloadId: string): string {
 }
 
 function toCollectionView(collection: StickerCollection): CollectionView {
+  assetPreviewIndex.update(collection)
   return {
     ...collection,
     assets: collection.assets.map(({ originalPath: _originalPath, ...asset }) => ({
@@ -163,7 +169,9 @@ async function loadReconciledExportTask(): Promise<ExportTask> {
 
 async function prepareCurrentExportTask(
   onProgress?: Parameters<ExportPreparer['prepare']>[3],
+  signal?: AbortSignal,
 ): Promise<{ task: ExportTask; prepared: PreparedExportResult }> {
+  signal?.throwIfAborted()
   const collection = await manifestStore.loadOrCreate()
   const task = await exportTaskStore.reconcileAssets(
     new Set(collection.assets.map((asset) => asset.id)),
@@ -172,20 +180,45 @@ async function prepareCurrentExportTask(
     if (!task.destination.directoryId) throw new Error('请先选择本地导出位置')
     await exportDestinationStore.resolveDirectory(task.destination.directoryId)
   }
-  const prepared = await exportPreparer.prepare(task, collection, collectionDirectory, onProgress)
+  const prepared = await exportPreparer.prepare(
+    task,
+    collection,
+    collectionDirectory,
+    onProgress,
+    signal,
+  )
+  signal?.throwIfAborted()
   const hasFailure =
     prepared.warnings.length > 0 ||
     prepared.assetFailures.length > 0 ||
     prepared.groups.some((group) => group.status === 'failed')
-  const nextTask = await exportTaskStore.setPrepared({
-    fingerprint: prepared.fingerprint,
-    status: hasFailure ? 'partial-failure' : 'prepared',
-    ...(task.prepared?.fingerprint === prepared.fingerprint && task.prepared.snapshotId
-      ? { snapshotId: task.prepared.snapshotId }
-      : {}),
-    preparedAt: new Date().toISOString(),
+  const nextTask = await enqueueMutation(async () => {
+    signal?.throwIfAborted()
+    const current = await exportTaskStore.loadOrCreate()
+    if (current.updatedAt !== task.updatedAt) {
+      throw new DOMException('导出任务已修改，已停止旧的准备任务。', 'AbortError')
+    }
+    return exportTaskStore.setPrepared({
+      fingerprint: prepared.fingerprint,
+      status: hasFailure ? 'partial-failure' : 'prepared',
+      ...(task.prepared?.fingerprint === prepared.fingerprint && task.prepared.snapshotId
+        ? { snapshotId: task.prepared.snapshotId }
+        : {}),
+      preparedAt: new Date().toISOString(),
+    })
   })
   return { task: nextTask, prepared }
+}
+
+function cancelExportPreparation(message = '已停止准备传输。'): boolean {
+  const controller = exportPreparationController
+  if (!controller || controller.signal.aborted) return false
+  controller.abort(new DOMException(message, 'AbortError'))
+  return true
+}
+
+async function waitForExportPreparation(): Promise<void> {
+  await exportPreparationTask?.catch(() => undefined)
 }
 
 function assertStringArray(value: unknown, label: string): asserts value is string[] {
@@ -279,6 +312,7 @@ function installIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.saveExportTask, async (_event, task: ExportTaskDraft) => {
+    cancelExportPreparation('导出任务已修改，已停止旧的准备任务。')
     try {
       return await enqueueMutation(async () =>
         exportTaskStore.saveDraft(await normalizeExportTaskDraft(task)),
@@ -314,12 +348,18 @@ function installIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.prepareExportTask, async (event: IpcMainInvokeEvent) => {
+    cancelExportPreparation('已开始新的准备任务。')
+    await waitForExportPreparation()
+    const controller = new AbortController()
+    exportPreparationController = controller
+    const preparation = prepareCurrentExportTask((progress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(IPC_CHANNELS.prepareProgress, progress)
+      }
+    }, controller.signal)
+    exportPreparationTask = preparation
     try {
-      const { prepared } = await enqueueMutation(() =>
-        prepareCurrentExportTask((progress) =>
-          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
-        ),
-      )
+      const { prepared } = await preparation
       return exportPreparer.toSummary(prepared, (assetId) => {
         const payload = prepared.groups
           .flatMap((group) => group.payloads)
@@ -328,15 +368,20 @@ function installIpcHandlers(): void {
       })
     } catch (error) {
       throw sanitizeError(error)
+    } finally {
+      if (exportPreparationController === controller) exportPreparationController = null
+      if (exportPreparationTask === preparation) exportPreparationTask = null
     }
   })
 
+  ipcMain.handle(IPC_CHANNELS.cancelExportPreparation, () => cancelExportPreparation())
+
   ipcMain.handle(IPC_CHANNELS.transferLocalExport, async (event: IpcMainInvokeEvent) => {
     try {
+      const { task, prepared } = await prepareCurrentExportTask((progress) =>
+        event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+      )
       return await enqueueMutation(async () => {
-        const { task, prepared } = await prepareCurrentExportTask((progress) =>
-          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
-        )
         if (task.destination?.kind !== 'local-folder' || !task.destination.directoryId) {
           throw new Error('请先选择本地导出位置')
         }
@@ -362,10 +407,10 @@ function installIpcHandlers(): void {
         throw new TypeError('forceDuplicate must be a boolean')
       }
       try {
+        const { prepared } = await prepareCurrentExportTask((progress) =>
+          event.sender.send(IPC_CHANNELS.prepareProgress, progress),
+        )
         return await enqueueMutation(async () => {
-          const { prepared } = await prepareCurrentExportTask((progress) =>
-            event.sender.send(IPC_CHANNELS.prepareProgress, progress),
-          )
           const result = await preparedSnapshotStore.save(prepared, forceDuplicate === true)
           await exportTaskStore.attachSnapshot(prepared.fingerprint, result.manifest.id)
           return {
@@ -859,8 +904,7 @@ async function installAssetProtocol(): Promise<void> {
     try {
       const url = new URL(request.url)
       const id = decodeURIComponent(url.pathname.replace(/^\//, ''))
-      const collection = await manifestStore.loadOrCreate()
-      const asset = collection.assets.find((candidate) => candidate.id === id)
+      const asset = await assetPreviewIndex.find(id, () => manifestStore.loadOrCreate())
       if (!asset) return new Response('Not found', { status: 404 })
       const body = await readFile(asset.originalPath)
       return new Response(Uint8Array.from(body), {

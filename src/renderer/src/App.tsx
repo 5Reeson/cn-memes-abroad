@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
@@ -20,6 +20,7 @@ import type {
   ImportMode,
   ImportProgress,
   ImportSummary,
+  PrepareProgress,
   PrepareExportSummary,
   PreparedPackView,
   PreparedSnapshotView,
@@ -27,7 +28,9 @@ import type {
   WhatsAppConnectionView,
 } from '../../shared/domain.js'
 import { AppShell, type AppPage } from './components/AppShell.js'
+import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerPicker } from './components/StickerPicker.js'
+import { useProgressiveCount } from './components/useProgressiveCount.js'
 import { WhatsAppConnectionPanel, connectionLabel } from './components/WhatsAppConnectionPanel.js'
 import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
@@ -82,6 +85,7 @@ export function App() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
+  const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null)
   const [failures, setFailures] = useState<ImportFailure[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +100,7 @@ export function App() {
       return
     }
     const unsubscribeImport = api.onImportProgress(setProgress)
+    const unsubscribePrepare = api.onPrepareProgress(setPrepareProgress)
     const unsubscribeStatus = api.onWhatsAppStatus(setWhatsApp)
     Promise.all([
       api.getCollection(),
@@ -114,6 +119,7 @@ export function App() {
       .finally(() => setLoading(false))
     return () => {
       unsubscribeImport()
+      unsubscribePrepare()
       unsubscribeStatus()
     }
   }, [])
@@ -223,8 +229,16 @@ export function App() {
     const api = window.stickerApp
     if (!api) return
     setBusy(true)
+    setPrepareProgress({
+      completed: 0,
+      total: taskRef.current?.selectedAssetIds.length ?? 0,
+      currentName: '',
+      packIndex: 0,
+      packCount: 0,
+    })
     setError(null)
     try {
+      await saveQueue.current
       const result = await api.prepareExportTask()
       setPrepared(result)
       const refreshed = await api.getExportTask()
@@ -234,10 +248,19 @@ export function App() {
         setNotice(`已自动规范化 ${result.animationRepairs.length} 张动图的短帧，其余素材不受影响。`)
       }
     } catch (reason) {
-      showError(reason)
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (!message.includes('已停止') && !message.includes('已修改')) showError(reason)
     } finally {
       setBusy(false)
+      setPrepareProgress(null)
     }
+  }
+
+  async function cancelPreparation() {
+    setBusy(false)
+    setPrepareProgress(null)
+    setNotice('已请求停止准备；当前素材结束清理后不会继续处理。')
+    await window.stickerApp?.cancelExportPreparation()
   }
 
   async function saveSnapshot(forceDuplicate = false) {
@@ -365,6 +388,8 @@ export function App() {
         }
         onChooseLocalDestination={chooseLocalDestination}
         onPrepare={prepareTask}
+        prepareProgress={prepareProgress}
+        onCancelPrepare={cancelPreparation}
         onSaveSnapshot={saveSnapshot}
         onTransferLocal={transferLocal}
         onDeleteSnapshot={deleteSnapshot}
@@ -471,6 +496,8 @@ interface ExportPageProps {
   wechatPanel: React.ReactNode
   onChooseLocalDestination(): void
   onPrepare(): void
+  prepareProgress: PrepareProgress | null
+  onCancelPrepare(): void
   onSaveSnapshot(forceDuplicate?: boolean): void
   onTransferLocal(): void
   onDeleteSnapshot(id: string): void
@@ -725,7 +752,14 @@ function PickerStep(props: ExportPageProps) {
 function TransferStep(props: ExportPageProps) {
   const { task, prepared } = props
   const whatsAppDestination = task.destination?.kind === 'whatsapp'
-  const preparedPacks = toPreparedPacks(prepared)
+  const preparedPacks = useMemo(() => toPreparedPacks(prepared), [prepared])
+  const progressiveGroups = useProgressiveCount({
+    total: prepared?.groups.length ?? 0,
+    initialCount: 10,
+    batchSize: 10,
+    resetKey: prepared?.fingerprint ?? 'no-prepared-result',
+  })
+  const renderedGroups = prepared?.groups.slice(0, progressiveGroups.visibleCount) ?? []
   return (
     <div className="workflow-workspace transfer-workspace">
       <StepHeading
@@ -799,6 +833,26 @@ function TransferStep(props: ExportPageProps) {
             {props.busy ? '正在准备' : task.prepared ? '重新准备' : '准备传输'}
           </button>
         </div>
+        {props.busy && props.prepareProgress && (
+          <div className="prepare-progress transfer-prepare-progress" aria-live="polite">
+            <div>
+              <span>
+                正在准备 {props.prepareProgress.completed} / {props.prepareProgress.total}
+              </span>
+              <span>{props.prepareProgress.currentName || '正在检查准备缓存…'}</span>
+            </div>
+            <div className="progress-line">
+              <span
+                style={{
+                  width: `${props.prepareProgress.total ? Math.max(2, (props.prepareProgress.completed / props.prepareProgress.total) * 100) : 2}%`,
+                }}
+              />
+            </div>
+            <button className="text-button" type="button" onClick={props.onCancelPrepare}>
+              停止准备
+            </button>
+          </div>
+        )}
         {prepared?.warnings.map((warning) => (
           <p className="inline-note warning" key={warning}>
             {warning}
@@ -811,7 +865,7 @@ function TransferStep(props: ExportPageProps) {
         ))}
         {prepared && (
           <div className="prepared-groups">
-            {prepared.groups.map((group) => (
+            {renderedGroups.map((group) => (
               <article key={group.id} className={group.status === 'failed' ? 'is-failed' : ''}>
                 <div>
                   <strong>{group.name}</strong>
@@ -826,13 +880,23 @@ function TransferStep(props: ExportPageProps) {
                 </div>
                 <div className="prepared-thumbs">
                   {group.items.slice(0, 6).map((item) => (
-                    <img src={item.previewUrl} alt="" key={item.id} />
+                    <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
                   ))}
                 </div>
                 <small>{group.status === 'failed' ? '准备失败' : '待传输'}</small>
               </article>
             ))}
           </div>
+        )}
+        {prepared && progressiveGroups.hasMore && (
+          <button
+            className="progressive-load-more"
+            type="button"
+            ref={progressiveGroups.sentinelRef}
+            onClick={progressiveGroups.showMore}
+          >
+            已显示 {progressiveGroups.visibleCount} / {prepared.groups.length} 个分组，继续加载
+          </button>
         )}
       </section>
       {prepared && (
@@ -1044,7 +1108,7 @@ function SnapshotPreviewDialog({
               </div>
               <div>
                 {group.items.map((item) => (
-                  <img src={item.previewUrl} alt="" key={item.id} />
+                  <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
                 ))}
               </div>
             </article>

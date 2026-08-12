@@ -153,6 +153,55 @@ describe('PackPreparer', () => {
     }
   }
 
+  async function manyFrameGifAsset(index: number, frameCount = 90): Promise<StickerAsset> {
+    const originalPath = join(temporaryDirectory, `many-frame-${index}.gif`)
+    const frameHeight = 8
+    const contents = await sharp({
+      create: {
+        width: 8,
+        height: frameHeight * frameCount,
+        pageHeight: frameHeight,
+        channels: 4,
+        background: 'red',
+      },
+    })
+      .composite(
+        Array.from({ length: frameCount - 1 }, (_, frameIndex) => ({
+          input: Buffer.from(
+            `<svg width="8" height="8"><rect width="8" height="8" fill="rgb(${(frameIndex * 13) % 255},${(frameIndex * 29) % 255},${(frameIndex * 43) % 255})"/></svg>`,
+          ),
+          top: (frameIndex + 1) * frameHeight,
+          left: 0,
+        })),
+      )
+      .gif({ delay: Array(frameCount).fill(40), loop: 0, keepDuplicateFrames: true })
+      .toBuffer()
+    await writeFile(originalPath, contents)
+    return {
+      id: `asset-${index}`,
+      sources: [
+        {
+          id: 'source-wechat4-many-frame',
+          kind: 'wechat4',
+          label: '微信 4.x 账号 · 0001',
+          accountId: 'wechat4-test-account',
+          importedAt: '2026-08-08T00:00:00.000Z',
+        },
+      ],
+      displayName: `Many-frame GIF ${index}`,
+      originalPath,
+      sha256: createHash('sha256').update(contents).digest('hex'),
+      mimeType: 'image/gif',
+      animated: true,
+      width: 8,
+      height: 8,
+      durationMs: frameCount * 40,
+      importedAt: '2026-08-08T00:00:00.000Z',
+      sourceOrder: index,
+      userOrder: index,
+    }
+  }
+
   function collection(assets: StickerAsset[]): StickerCollection {
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -272,6 +321,23 @@ describe('PackPreparer', () => {
     expect(converted.delay).toEqual(Array(source.pages).fill(100))
   })
 
+  it('uses a bounded conversion path for many-frame GIFs and continues the pack', async () => {
+    const assets = [await manyFrameGifAsset(0), await asset(1, true), await asset(2, true)]
+    const progress: Array<[number, string]> = []
+    const [pack] = await new PackPreparer().prepare(
+      collection(assets),
+      collectionDirectory,
+      (current) => progress.push([current.completed, current.currentName]),
+    )
+
+    expect(pack).toMatchObject({ status: 'prepared', assetFailures: [] })
+    expect(pack!.stickers).toHaveLength(3)
+    expect(progress.slice(0, 2)).toEqual([
+      [0, 'Many-frame GIF 0'],
+      [1, 'Many-frame GIF 0'],
+    ])
+  })
+
   it('does not reuse a valid-looking conversion from the previous cache version', async () => {
     const assets = await Promise.all([asset(0), asset(1), asset(2)])
     const oldKey = createHash('sha256')
@@ -316,6 +382,28 @@ describe('PackPreparer', () => {
     ])
     expect(staticPack).toMatchObject({ status: 'prepared', assetFailures: [] })
     expect(staticPack.stickers).toHaveLength(3)
+  })
+
+  it('stops before converting more assets after preparation is canceled', async () => {
+    const assets = await Promise.all([asset(7), asset(8), asset(9), asset(10)])
+    const controller = new AbortController()
+    const progress: number[] = []
+
+    await expect(
+      new PackPreparer().prepare(
+        collection(assets),
+        collectionDirectory,
+        (current) => {
+          progress.push(current.completed)
+          if (current.completed === 1) {
+            controller.abort(new DOMException('cancel fixture', 'AbortError'))
+          }
+        },
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(progress).toEqual([0, 1])
   })
 })
 

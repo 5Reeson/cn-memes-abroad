@@ -74,14 +74,16 @@ export class ExportPreparer {
     collection: StickerCollection,
     collectionDirectory: string,
     onProgress?: (progress: PrepareProgress) => void,
+    signal?: AbortSignal,
   ): Promise<PreparedExportResult> {
+    signal?.throwIfAborted()
     if (!task.destination) throw new Error('请先选择导出目的地')
     const assets = orderedTaskAssets(task, collection)
     if (assets.length === 0) throw new Error('请先选择要传输的表情')
 
     return task.destination.kind === 'whatsapp'
-      ? this.prepareWhatsApp(task, collection, assets, collectionDirectory, onProgress)
-      : this.prepareLocalFolder(task, assets, collectionDirectory, onProgress)
+      ? this.prepareWhatsApp(task, collection, assets, collectionDirectory, onProgress, signal)
+      : this.prepareLocalFolder(task, assets, collectionDirectory, onProgress, signal)
   }
 
   toSummary(
@@ -129,6 +131,7 @@ export class ExportPreparer {
     assets: StickerAsset[],
     collectionDirectory: string,
     onProgress?: (progress: PrepareProgress) => void,
+    signal?: AbortSignal,
   ): Promise<PreparedExportResult> {
     const preparedCollection = this.whatsAppCollection(task, collection, assets)
     const plan = planStickerPacks(preparedCollection)
@@ -136,11 +139,14 @@ export class ExportPreparer {
       preparedCollection,
       collectionDirectory,
       onProgress,
+      signal,
     )
+    signal?.throwIfAborted()
     const plannedAssets = new Map(plan.packs.map((pack) => [pack.id, pack.assetIds]))
     const groups = await Promise.all(
-      packs.map((pack) => this.whatsAppGroup(pack, plannedAssets.get(pack.id) ?? [])),
+      packs.map((pack) => this.whatsAppGroup(pack, plannedAssets.get(pack.id) ?? [], signal)),
     )
+    signal?.throwIfAborted()
     const configuration: PreparedSnapshotConfiguration = {
       kind: 'whatsapp',
       ...task.whatsapp,
@@ -174,6 +180,7 @@ export class ExportPreparer {
     collection: StickerCollection,
     collectionDirectory: string,
     onProgress?: (progress: PrepareProgress) => void,
+    signal?: AbortSignal,
   ): Promise<PreparedPack[]> {
     if (task.destination?.kind !== 'whatsapp') throw new Error('当前导出目的地不是 WhatsApp')
     const assets = orderedTaskAssets(task, collection)
@@ -182,6 +189,7 @@ export class ExportPreparer {
       this.whatsAppCollection(task, collection, assets),
       collectionDirectory,
       onProgress,
+      signal,
     )
   }
 
@@ -204,7 +212,9 @@ export class ExportPreparer {
   private async whatsAppGroup(
     pack: PreparedPack,
     plannedAssetIds: string[],
+    signal?: AbortSignal,
   ): Promise<PreparedExportGroup> {
+    signal?.throwIfAborted()
     if (pack.status === 'failed') {
       const failedAssetIds = [
         ...pack.stickers.map((sticker) => sticker.assetId),
@@ -236,6 +246,7 @@ export class ExportPreparer {
         ...(sticker.droppedFrameCount ? { droppedFrameCount: sticker.droppedFrameCount } : {}),
       })),
     )
+    signal?.throwIfAborted()
     const trayStat = await stat(pack.trayPath)
     const tray: PreparedExportPayload = {
       id: `tray-${pack.id}`,
@@ -262,7 +273,9 @@ export class ExportPreparer {
     assets: StickerAsset[],
     collectionDirectory: string,
     onProgress?: (progress: PrepareProgress) => void,
+    signal?: AbortSignal,
   ): Promise<PreparedExportResult> {
+    signal?.throwIfAborted()
     const configuration: PreparedSnapshotConfiguration = {
       kind: 'local-folder',
       ...task.localFolder,
@@ -272,12 +285,14 @@ export class ExportPreparer {
     let completed = 0
     const groups: PreparedExportGroup[] = []
     for (const [groupIndex, groupAssets] of chunks.entries()) {
+      signal?.throwIfAborted()
       const suffix = chunks.length > 1 ? ` ${groupIndex + 1}` : ''
       const name = `${configuration.batchName.slice(0, 128 - suffix.length)}${suffix}`
       try {
         const usedNames = new Set<string>()
         const payloads: PreparedExportPayload[] = []
         for (const [itemIndex, asset] of groupAssets.entries()) {
+          signal?.throwIfAborted()
           try {
             const sourcePath =
               configuration.format === 'original'
@@ -303,6 +318,7 @@ export class ExportPreparer {
               animated: asset.animated,
               ...(asset.durationMs === undefined ? {} : { durationMs: asset.durationMs }),
             })
+            signal?.throwIfAborted()
           } finally {
             completed += 1
             onProgress?.({
@@ -323,6 +339,7 @@ export class ExportPreparer {
           status: 'prepared',
         })
       } catch (error) {
+        if (signal?.aborted) throw signal.reason
         groups.push({
           id: stableGroupId('local', groupAssets),
           name,
@@ -334,6 +351,7 @@ export class ExportPreparer {
         })
       }
     }
+    signal?.throwIfAborted()
     const result = {
       destination: 'local-folder' as const,
       name: configuration.batchName,

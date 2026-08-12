@@ -32,6 +32,7 @@ export const IPC_CHANNELS = {
   resetExportTask: 'exports:reset-current-task',
   chooseExportDirectory: 'exports:choose-local-directory',
   prepareExportTask: 'exports:prepare-current-task',
+  cancelExportPreparation: 'exports:cancel-preparation',
   transferLocalExport: 'exports:transfer-local',
   savePreparedSnapshot: 'exports:save-prepared-snapshot',
   listPreparedSnapshots: 'exports:list-prepared-snapshots',
@@ -73,6 +74,7 @@ export interface StickerAppApi {
   resetExportTask(): Promise<ExportTask>
   chooseExportDirectory(): Promise<ExportDestinationChoice | undefined>
   prepareExportTask(): Promise<PrepareExportSummary>
+  cancelExportPreparation(): Promise<boolean>
   transferLocalExport(): Promise<LocalExportSummary>
   savePreparedSnapshot(forceDuplicate?: boolean): Promise<SavePreparedSnapshotResult>
   listPreparedSnapshots(): Promise<PreparedSnapshotSummary[]>
