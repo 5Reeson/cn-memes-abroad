@@ -22,6 +22,7 @@ import type {
 interface WhatsAppSendPanelProps {
   expectedPackCount: number
   preparedPacks: PreparedPackView[]
+  selectedPackIds: string[]
   onError(message: string): void
   onSent?(): void
 }
@@ -55,6 +56,7 @@ function connectionLabel(phase: WhatsAppConnectionPhase): string {
 export function WhatsAppSendPanel({
   expectedPackCount,
   preparedPacks,
+  selectedPackIds,
   onError,
   onSent,
 }: WhatsAppSendPanelProps) {
@@ -71,10 +73,13 @@ export function WhatsAppSendPanel({
   const [receipts, setReceipts] = useState<Record<string, SendPackReceipt>>({})
 
   const packSignature = preparedPacks.map((pack) => `${pack.id}:${pack.status}`).join('|')
+  const selectedPacks = preparedPacks.filter((pack) => selectedPackIds.includes(pack.id))
+  const selectedPackCount = selectedPacks.length
   const readyToSend =
-    expectedPackCount > 0 &&
+    selectedPackIds.length > 0 &&
     preparedPacks.length === expectedPackCount &&
-    preparedPacks.every((pack) => pack.status === 'prepared')
+    selectedPackCount === selectedPackIds.length &&
+    selectedPacks.every((pack) => pack.status === 'prepared')
   const filteredGroups = useMemo(() => {
     const query = groupSearch.trim().toLocaleLowerCase('zh-Hans-CN')
     return query
@@ -85,11 +90,11 @@ export function WhatsAppSendPanel({
     selectedTargetId === connection.selfTarget?.id
       ? connection.selfTarget
       : groups?.find((group) => group.id === selectedTargetId)
-  const failedPackIds = preparedPacks
+  const failedPackIds = selectedPacks
     .filter((pack) => receipts[pack.id]?.status === 'failed')
     .map((pack) => pack.id)
-  const sentCount = Object.values(receipts).filter((receipt) =>
-    ['sent', 'skipped'].includes(receipt.status),
+  const sentCount = selectedPacks.filter((pack) =>
+    ['sent', 'skipped'].includes(receipts[pack.id]?.status ?? ''),
   ).length
 
   useEffect(() => {
@@ -469,13 +474,15 @@ export function WhatsAppSendPanel({
             <div className="send-summary">
               <strong>{selectedTarget?.name ?? '请选择发送目标'}</strong>
               <p>
-                {!readyToSend
-                  ? '请先点击上方“准备传输”完成表情转换。'
-                  : sending
-                    ? '正在逐包上传，请保持应用打开。'
-                    : sentCount === expectedPackCount
-                      ? '全部 WhatsApp 原生贴纸包已发送，请回到手机逐包添加。'
-                      : `准备发送 ${expectedPackCount} 个 WhatsApp 原生贴纸包。`}
+                {selectedPackCount === 0
+                  ? '请在传输预览中至少选择一个表情包。'
+                  : !readyToSend
+                    ? '请先点击上方“准备传输”完成表情转换。'
+                    : sending
+                      ? '正在逐包上传，请保持应用打开。'
+                      : sentCount === selectedPackCount
+                        ? '所选 WhatsApp 原生贴纸包已发送，请回到手机逐包添加。'
+                        : `准备发送 ${selectedPackCount} 个 WhatsApp 原生贴纸包。`}
               </p>
             </div>
             {failedPackIds.length > 0 ? (
@@ -492,12 +499,12 @@ export function WhatsAppSendPanel({
                 className="primary-button"
                 type="button"
                 disabled={
-                  !readyToSend || !selectedTarget || sending || sentCount === expectedPackCount
+                  !readyToSend || !selectedTarget || sending || sentCount === selectedPackCount
                 }
-                onClick={() => send()}
+                onClick={() => send(selectedPackIds)}
               >
                 <PaperPlaneTilt size={16} />
-                {sending ? '正在发送' : `发送 ${expectedPackCount} 个包`}
+                {sending ? '正在发送' : `发送 ${selectedPackCount} 个包`}
               </button>
             )}
           </div>

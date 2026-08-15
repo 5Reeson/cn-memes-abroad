@@ -865,15 +865,19 @@ function DestinationStep(props: ExportPageProps) {
             </p>
           </div>
           <button
-            className="secondary-button"
+            className={connected ? 'primary-button' : 'secondary-button'}
             type="button"
             onClick={() => {
               setFocusedDestination('whatsapp')
-              setWhatsAppPanelOpen(!connected)
+              if (connected) {
+                props.onTask({ destination: { kind: 'whatsapp' }, currentStep: 3 })
+                return
+              }
+              setWhatsAppPanelOpen(true)
               props.onTask({ destination: { kind: 'whatsapp' } })
             }}
           >
-            {connected ? '选择' : '连接并选择'}
+            {connected ? '下一步' : '连接并选择'}
           </button>
         </section>
         {!connected && whatsAppPanelOpen && (
@@ -991,6 +995,14 @@ function TransferStep(props: ExportPageProps) {
   const { task, prepared } = props
   const whatsAppDestination = task.destination?.kind === 'whatsapp'
   const preparedPacks = useMemo(() => toPreparedPacks(prepared), [prepared])
+  const sendablePackIds = useMemo(
+    () =>
+      prepared?.groups.filter((group) => group.status === 'prepared').map((group) => group.id) ??
+      [],
+    [prepared],
+  )
+  const [selectedPackIds, setSelectedPackIds] = useState<string[]>([])
+  const [previewGroupId, setPreviewGroupId] = useState<string | null>(null)
   const progressiveGroups = useProgressiveCount({
     total: prepared?.groups.length ?? 0,
     initialCount: 10,
@@ -998,6 +1010,19 @@ function TransferStep(props: ExportPageProps) {
     resetKey: prepared?.fingerprint ?? 'no-prepared-result',
   })
   const renderedGroups = prepared?.groups.slice(0, progressiveGroups.visibleCount) ?? []
+  const previewGroup = prepared?.groups.find((group) => group.id === previewGroupId)
+
+  useEffect(() => {
+    setSelectedPackIds(sendablePackIds)
+    setPreviewGroupId(null)
+  }, [prepared?.fingerprint, sendablePackIds])
+
+  function togglePack(packId: string) {
+    setSelectedPackIds((current) =>
+      current.includes(packId) ? current.filter((id) => id !== packId) : [...current, packId],
+    )
+  }
+
   return (
     <div className="workflow-workspace transfer-workspace">
       <StepHeading
@@ -1106,29 +1131,95 @@ function TransferStep(props: ExportPageProps) {
         {prepared && prepared.assetFailures.length > 0 && (
           <PreparationFailurePanel key={prepared.fingerprint} failures={prepared.assetFailures} />
         )}
+        {prepared && whatsAppDestination && <PackRulesNotice key={prepared.fingerprint} />}
+        {prepared && whatsAppDestination && (
+          <div className="prepared-selection-bar">
+            <span>
+              已选择 {selectedPackIds.length} / {sendablePackIds.length} 个可发送表情包
+            </span>
+            <div>
+              <button
+                type="button"
+                disabled={selectedPackIds.length === sendablePackIds.length}
+                onClick={() => setSelectedPackIds(sendablePackIds)}
+              >
+                全选
+              </button>
+              <span aria-hidden="true" />
+              <button
+                type="button"
+                disabled={selectedPackIds.length === 0}
+                onClick={() => setSelectedPackIds([])}
+              >
+                取消选择
+              </button>
+            </div>
+          </div>
+        )}
         {prepared && (
           <div className="prepared-groups">
-            {renderedGroups.map((group) => (
-              <article key={group.id} className={group.status === 'failed' ? 'is-failed' : ''}>
-                <div>
-                  <strong>{group.name}</strong>
-                  <span>
-                    {group.items.length} 张 ·{' '}
-                    {group.mediaKind === 'animated'
-                      ? '动图'
-                      : group.mediaKind === 'static'
-                        ? '静态表情'
-                        : '混合素材'}
-                  </span>
-                </div>
-                <div className="prepared-thumbs">
-                  {group.items.slice(0, 6).map((item) => (
-                    <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
-                  ))}
-                </div>
-                <small>{group.status === 'failed' ? '准备失败' : '待传输'}</small>
-              </article>
-            ))}
+            {renderedGroups.map((group) => {
+              const selected = selectedPackIds.includes(group.id)
+              return (
+                <article
+                  key={group.id}
+                  className={`${whatsAppDestination ? 'is-selectable ' : ''}${
+                    group.status === 'failed' ? 'is-failed' : ''
+                  }${whatsAppDestination && !selected ? ' is-excluded' : ''}`}
+                >
+                  {whatsAppDestination && (
+                    <label className="prepared-pack-choice">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={group.status === 'failed'}
+                        onChange={() => togglePack(group.id)}
+                      />
+                      <span className="visually-hidden">
+                        {selected ? `取消发送 ${group.name}` : `发送 ${group.name}`}
+                      </span>
+                    </label>
+                  )}
+                  <button
+                    className="prepared-group-open"
+                    type="button"
+                    onClick={() => setPreviewGroupId(group.id)}
+                  >
+                    <span className="prepared-group-copy">
+                      <strong>{group.name}</strong>
+                      <span>
+                        {group.items.length} 张 ·{' '}
+                        {group.mediaKind === 'animated'
+                          ? '动图'
+                          : group.mediaKind === 'static'
+                            ? '静态表情'
+                            : '混合素材'}
+                      </span>
+                      <small
+                        className={`prepared-group-status ${
+                          group.status === 'failed'
+                            ? 'is-failed'
+                            : whatsAppDestination && !selected
+                              ? 'is-excluded'
+                              : 'is-ready'
+                        }`}
+                      >
+                        {group.status === 'failed'
+                          ? '准备失败'
+                          : whatsAppDestination && !selected
+                            ? '本次不传输'
+                            : '待传输'}
+                      </small>
+                    </span>
+                    <span className="prepared-thumbs">
+                      {group.items.slice(0, 6).map((item) => (
+                        <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
+                      ))}
+                    </span>
+                  </button>
+                </article>
+              )
+            })}
           </div>
         )}
         {prepared && progressiveGroups.hasMore && (
@@ -1163,6 +1254,7 @@ function TransferStep(props: ExportPageProps) {
         <WhatsAppSendPanel
           expectedPackCount={prepared.groups.length}
           preparedPacks={preparedPacks}
+          selectedPackIds={selectedPackIds}
           onError={props.onError}
           onSent={props.onRefreshTask}
         />
@@ -1187,6 +1279,85 @@ function TransferStep(props: ExportPageProps) {
           onDelete={props.onDeleteSnapshot}
         />
       )}
+      {previewGroup && (
+        <PreparedPackPreviewDialog group={previewGroup} onClose={() => setPreviewGroupId(null)} />
+      )}
+    </div>
+  )
+}
+
+function PackRulesNotice() {
+  const [visible, setVisible] = useState(true)
+  if (!visible) return null
+  return (
+    <aside className="pack-rules-notice" aria-label="WhatsApp 分包规则">
+      <Info size={18} />
+      <div>
+        <strong>WhatsApp 分包规则</strong>
+        <ul>
+          <li>
+            每个包必须包含 3-30 张图片。数量或余数发生冲突时，系统会自动选择最合适的分包方式。
+          </li>
+          <li>动图和静态表情必须放在不同的包里，系统会自动分开。</li>
+        </ul>
+      </div>
+      <button type="button" aria-label="关闭分包规则提示" onClick={() => setVisible(false)}>
+        <X size={16} />
+      </button>
+    </aside>
+  )
+}
+
+function PreparedPackPreviewDialog({
+  group,
+  onClose,
+}: {
+  group: PrepareExportSummary['groups'][number]
+  onClose(): void
+}) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const kindLabel =
+    group.mediaKind === 'animated' ? '动图' : group.mediaKind === 'static' ? '静态表情' : '混合素材'
+
+  return (
+    <div className="preview-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="prepared-pack-preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prepared-pack-preview-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <h2 id="prepared-pack-preview-title">{group.name}</h2>
+            <p>
+              {group.items.length} 张 · {kindLabel}
+            </p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭预览">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="prepared-pack-preview-grid">
+          {group.items.map((item, index) => (
+            <figure key={item.id}>
+              <ProgressiveImage
+                src={item.previewUrl}
+                alt={`${group.name}中的第 ${index + 1} 张表情`}
+              />
+              <figcaption>{index + 1}</figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
