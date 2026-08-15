@@ -33,6 +33,7 @@ describe('ExportDestinationStore', () => {
       directoryLabel: '用户导出位置',
     })
     expect(JSON.stringify(choice)).not.toContain(root)
+    expect(await store.getDirectoryPath(choice.directoryId!)).toBe(await realpath(selected))
     expect(await store.resolveDirectory(choice.directoryId!)).toBe(await realpath(selected))
     expect(
       await new ExportDestinationStore({ path: storePath }).getChoice(choice.directoryId!),

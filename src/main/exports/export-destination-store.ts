@@ -81,6 +81,10 @@ export class ExportDestinationStore {
     return directory ? toChoice(directory) : undefined
   }
 
+  async getDirectoryPath(id: string): Promise<string | undefined> {
+    return (await this.loadOrCreate()).directories.find((item) => item.id === id)?.path
+  }
+
   async resolveDirectory(id: string): Promise<string> {
     const directory = (await this.loadOrCreate()).directories.find((item) => item.id === id)
     if (!directory) throw new Error('本地导出位置已失效，请重新选择')

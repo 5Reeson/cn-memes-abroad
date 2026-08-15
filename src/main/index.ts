@@ -1,9 +1,19 @@
 import { readFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { app, BrowserWindow, dialog, ipcMain, protocol, type IpcMainInvokeEvent } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  protocol,
+  type IpcMainInvokeEvent,
+} from 'electron'
 
 import { ExportDestinationStore } from './exports/export-destination-store.js'
+import { ExportPreferencesStore } from './exports/export-preferences.js'
 import { ExportPreparer, type PreparedExportResult } from './exports/export-preparer.js'
 import { writePreparedLocalExport } from './exports/local-export-writer.js'
 import { LocalStickerSource } from './library/local-sticker-source.js'
@@ -15,6 +25,7 @@ import {
 } from './exports/prepared-snapshot-store.js'
 import { ImportPreferencesStore } from './library/import-preferences.js'
 import { AssetPreviewIndex } from './library/asset-preview-index.js'
+import { renderClipboardPng } from './library/clipboard-image.js'
 import { ManifestStore } from './library/manifest-store.js'
 import { PackPreparer, type PreparedPack } from './packs/pack-preparer.js'
 import { WechatLegacySource } from './sources/wechat-legacy/wechat-legacy-source.js'
@@ -36,12 +47,12 @@ import type {
   ExportTaskDraft,
   ImportMode,
   ImportSummary,
-  LegacyWechatDownloadMode,
   PackSettings,
   PreparedPackView,
   StickerCollection,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  WechatDownloadMode,
 } from '../shared/domain.js'
 import { IPC_CHANNELS } from '../shared/ipc.js'
 
@@ -60,6 +71,7 @@ let mainWindow: BrowserWindow | null = null
 let manifestStore: ManifestStore
 let exportTaskStore: ExportTaskStore
 let exportDestinationStore: ExportDestinationStore
+let exportPreferences: ExportPreferencesStore
 let preparedSnapshotStore: PreparedSnapshotStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
@@ -249,7 +261,7 @@ function assertPackSettings(value: unknown): asserts value is PackSettings {
   }
 }
 
-function assertLegacyWechatDownloadMode(value: unknown): asserts value is LegacyWechatDownloadMode {
+function assertWechatDownloadMode(value: unknown): asserts value is WechatDownloadMode {
   if (value !== 'default' && value !== 'fast' && value !== 'safe') {
     throw new TypeError('Invalid Legacy WeChat download mode')
   }
@@ -330,18 +342,72 @@ function installIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.chooseExportDirectory, async () => {
+  ipcMain.handle(IPC_CHANNELS.getExportDirectory, async (_event, directoryId: string) => {
     try {
+      if (typeof directoryId !== 'string') return undefined
+      const [choice, path] = await Promise.all([
+        exportDestinationStore.getChoice(directoryId),
+        exportDestinationStore.getDirectoryPath(directoryId),
+      ])
+      return choice?.kind === 'local-folder' && path ? { choice, path } : undefined
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.chooseExportDirectory, async (_event, directoryId: unknown) => {
+    try {
+      let currentPath: string | undefined
+      if (typeof directoryId === 'string') {
+        try {
+          currentPath = await exportDestinationStore.resolveDirectory(directoryId)
+        } catch {
+          currentPath = undefined
+        }
+      }
+      const defaultPath =
+        currentPath ?? (await exportPreferences.getDefaultDirectory()) ?? app.getPath('downloads')
       const result = await dialog.showOpenDialog(mainWindow!, {
         title: '选择本地导出文件夹',
         buttonLabel: '选择',
         properties: ['openDirectory', 'createDirectory'],
-        defaultPath: app.getPath('downloads'),
+        defaultPath,
       })
       if (result.canceled || result.filePaths.length === 0) return undefined
-      return await enqueueMutation(() =>
+      const choice = await enqueueMutation(() =>
         exportDestinationStore.rememberDirectory(result.filePaths[0]!),
       )
+      if (choice.kind !== 'local-folder' || !choice.directoryId) return undefined
+      const path = await exportDestinationStore.getDirectoryPath(choice.directoryId)
+      return path ? { choice, path } : undefined
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getDefaultExportDirectory, async () => {
+    try {
+      const path = await exportPreferences.getDefaultDirectory()
+      return path ? { path } : undefined
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.chooseDefaultExportDirectory, async () => {
+    try {
+      const current = await exportPreferences.getDefaultDirectory()
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: '选择默认导出文件夹',
+        buttonLabel: '设为默认',
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: current ?? app.getPath('downloads'),
+      })
+      if (result.canceled || result.filePaths.length === 0) return undefined
+      const path = await enqueueMutation(() =>
+        exportPreferences.setDefaultDirectory(result.filePaths[0]!),
+      )
+      return { path }
     } catch (error) {
       throw sanitizeError(error)
     }
@@ -529,7 +595,7 @@ function installIpcHandlers(): void {
       downloadMode: unknown,
     ): Promise<ImportSummary> => {
       if (typeof accountId !== 'string' || !accountId) throw new TypeError('Invalid account ID')
-      assertLegacyWechatDownloadMode(downloadMode)
+      assertWechatDownloadMode(downloadMode)
       if (legacyWechatImportController) throw new Error('已有微信导入任务正在运行')
       const controller = new AbortController()
       legacyWechatImportController = controller
@@ -631,11 +697,13 @@ function installIpcHandlers(): void {
       event: IpcMainInvokeEvent,
       accountId: unknown,
       confirmed: unknown,
+      downloadMode: unknown,
     ): Promise<ImportSummary> => {
       if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
         throw new TypeError('Invalid WeChat 4 account ID')
       }
       if (confirmed !== true) throw new Error('必须先确认微信临时副本授权说明')
+      assertWechatDownloadMode(downloadMode)
       if (wechat4ImportController || legacyWechatImportController) {
         throw new Error('已有微信导入任务正在运行')
       }
@@ -659,6 +727,7 @@ function installIpcHandlers(): void {
                   ...(sourceLabel === undefined ? {} : { sourceLabel }),
                   collection,
                   collectionDirectory,
+                  downloadMode,
                   signal: controller.signal,
                 },
                 (progress) => {
@@ -737,6 +806,21 @@ function installIpcHandlers(): void {
         throw new TypeError('Selection contains an unknown asset')
       return toCollectionView(await manifestStore.save({ ...collection, selectedAssetIds: unique }))
     })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.copyAssetImage, async (_event, assetId: unknown) => {
+    if (typeof assetId !== 'string' || !assetId || assetId.length > 256) {
+      throw new TypeError('Invalid asset id')
+    }
+    try {
+      const asset = await assetPreviewIndex.find(assetId, () => manifestStore.loadOrCreate())
+      if (!asset) throw new Error('找不到要复制的素材。')
+      const image = nativeImage.createFromBuffer(await renderClipboardPng(asset.originalPath))
+      if (image.isEmpty()) throw new Error('图片无法写入剪贴板。')
+      clipboard.writeImage(image)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.reorderAssets, async (_event, orderedIds: unknown) => {
@@ -1001,6 +1085,9 @@ app.whenReady().then(async () => {
   exportDestinationStore = new ExportDestinationStore({
     path: join(userDataDirectory, 'exports', 'destinations.json'),
   })
+  exportPreferences = new ExportPreferencesStore(
+    join(userDataDirectory, 'settings', 'export-preferences.json'),
+  )
   preparedSnapshotStore = new PreparedSnapshotStore({
     rootDirectory: join(userDataDirectory, 'exports', 'snapshots'),
   })

@@ -13,7 +13,9 @@ import type {
   Wechat4GateStatus,
   Wechat4ImportAccountView,
   Wechat4ImportDiscoveryView,
+  WechatDownloadMode,
 } from '../../shared/domain.js'
+import { WechatDownloadSettings } from './components/WechatDownloadSettings.js'
 
 export function Wechat4Panel({
   onClose,
@@ -29,6 +31,7 @@ export function Wechat4Panel({
   const [pendingAccount, setPendingAccount] = useState<Wechat4ImportAccountView | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [importingId, setImportingId] = useState<string | null>(null)
+  const [downloadMode, setDownloadMode] = useState<WechatDownloadMode>('default')
   const [canceling, setCanceling] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [gateStatus, setGateStatus] = useState<Wechat4GateStatus>({
@@ -77,7 +80,7 @@ export function Wechat4Panel({
     setProgress(null)
     setError(null)
     try {
-      const result = await api.importWechat4(accountId, true)
+      const result = await api.importWechat4(accountId, true, downloadMode)
       if (result.canceled) onStopped()
       else onImported(result)
       onClose()
@@ -199,28 +202,36 @@ export function Wechat4Panel({
       {loading ? (
         <p className="wechat-legacy-empty">正在检测本机微信 4.x 表情数据库…</p>
       ) : discovery?.accounts.length ? (
-        <div className="wechat-account-list">
-          {discovery.accounts.map((account) => (
-            <article key={account.id}>
-              <div>
-                <strong>{account.label}</strong>
-                <span>
-                  数据库 {(account.databaseBytes / 1024 / 1024).toFixed(1)} MB
-                  {account.walPresent ? ' · 含 WAL' : ''}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={importingId !== null || pendingAccount !== null}
-                onClick={() => requestImport(account)}
-              >
-                <DownloadSimple size={16} />
-                {importingId === account.id ? '正在导入' : '授权并导入'}
-              </button>
-            </article>
-          ))}
-        </div>
+        <>
+          <WechatDownloadSettings
+            value={downloadMode}
+            disabled={importingId !== null || pendingAccount !== null}
+            cacheFirst
+            onChange={setDownloadMode}
+          />
+          <div className="wechat-account-list">
+            {discovery.accounts.map((account) => (
+              <article key={account.id}>
+                <div>
+                  <strong>{account.label}</strong>
+                  <span>
+                    数据库 {(account.databaseBytes / 1024 / 1024).toFixed(1)} MB
+                    {account.walPresent ? ' · 含 WAL' : ''}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={importingId !== null || pendingAccount !== null}
+                  onClick={() => requestImport(account)}
+                >
+                  <DownloadSimple size={16} />
+                  {importingId === account.id ? '正在导入' : '授权并导入'}
+                </button>
+              </article>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="wechat-legacy-empty">
           <p>

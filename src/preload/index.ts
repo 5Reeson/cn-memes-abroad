@@ -9,6 +9,7 @@ import type {
   SendPackProgress,
   WhatsAppConnectionView,
   Wechat4GateStatus,
+  WechatDownloadMode,
 } from '../shared/domain.js'
 
 const api: StickerAppApi = {
@@ -16,7 +17,12 @@ const api: StickerAppApi = {
   getExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.getExportTask),
   saveExportTask: (task) => ipcRenderer.invoke(IPC_CHANNELS.saveExportTask, task),
   resetExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.resetExportTask),
-  chooseExportDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseExportDirectory),
+  getExportDirectory: (directoryId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getExportDirectory, directoryId),
+  chooseExportDirectory: (directoryId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.chooseExportDirectory, directoryId),
+  getDefaultExportDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.getDefaultExportDirectory),
+  chooseDefaultExportDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseDefaultExportDirectory),
   prepareExportTask: () => ipcRenderer.invoke(IPC_CHANNELS.prepareExportTask),
   cancelExportPreparation: () => ipcRenderer.invoke(IPC_CHANNELS.cancelExportPreparation),
   transferLocalExport: () => ipcRenderer.invoke(IPC_CHANNELS.transferLocalExport),
@@ -32,8 +38,8 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyImport, accountId, downloadMode),
   cancelLegacyWechatImport: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyCancel),
   discoverWechat4: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Discover),
-  importWechat4: (accountId: string, confirmed: boolean) =>
-    ipcRenderer.invoke(IPC_CHANNELS.wechat4Import, accountId, confirmed),
+  importWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4Import, accountId, confirmed, downloadMode),
   cancelWechat4Import: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Cancel),
   confirmWechat4FavoritesReady: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4FavoritesReady),
   reorderAssets: (orderedIds: string[]) =>
@@ -41,6 +47,7 @@ const api: StickerAppApi = {
   removeAssets: (assetIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.removeAssets, assetIds),
   setSelection: (selectedIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.setSelection, selectedIds),
+  copyAssetImage: (assetId: string) => ipcRenderer.invoke(IPC_CHANNELS.copyAssetImage, assetId),
   updatePackSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.updatePackSettings, settings),
   preparePacks: () => ipcRenderer.invoke(IPC_CHANNELS.preparePacks),
   getWhatsAppStatus: () => ipcRenderer.invoke(IPC_CHANNELS.whatsappGetStatus),

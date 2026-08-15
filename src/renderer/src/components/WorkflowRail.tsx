@@ -1,5 +1,7 @@
 import { CheckIcon as Check } from '@phosphor-icons/react/Check'
+import type { ReactNode } from 'react'
 import type { ExportTask } from '../../../shared/domain.js'
+import { PathDisplay } from './PathDisplay.js'
 
 const steps = [
   { id: 1 as const, title: '选择表情', empty: '从微信、本机或表情库开始' },
@@ -10,19 +12,25 @@ const steps = [
 
 export function WorkflowRail({
   task,
+  directoryPath,
   onStep,
 }: {
   task: ExportTask
+  directoryPath?: string
   onStep(step: ExportTask['currentStep']): void
 }) {
-  const summaries: Partial<Record<ExportTask['currentStep'], string>> = {
+  const summaries: Partial<Record<ExportTask['currentStep'], ReactNode>> = {
     1: task.source?.label,
     2:
-      task.destination?.kind === 'whatsapp'
-        ? 'WhatsApp'
-        : task.destination?.kind === 'local-folder'
-          ? (task.destination.directoryLabel ?? '本地文件夹')
-          : undefined,
+      task.destination?.kind === 'whatsapp' ? (
+        'WhatsApp'
+      ) : task.destination?.kind === 'local-folder' ? (
+        directoryPath ? (
+          <PathDisplay path={directoryPath} placement="right" />
+        ) : (
+          (task.destination.directoryLabel ?? '本地文件夹')
+        )
+      ) : undefined,
     3: task.selectedAssetIds.length ? `${task.selectedAssetIds.length} 张已选择` : undefined,
     4: task.prepared
       ? task.prepared.status === 'complete'
@@ -51,7 +59,9 @@ export function WorkflowRail({
                 </span>
                 <span>
                   <strong>{step.title}</strong>
-                  <small>{summaries[step.id] ?? step.empty}</small>
+                  <small className={step.id === 2 && directoryPath ? 'path-summary' : undefined}>
+                    {summaries[step.id] ?? step.empty}
+                  </small>
                 </span>
                 {completed && <em>修改</em>}
               </button>

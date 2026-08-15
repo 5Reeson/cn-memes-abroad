@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -10,20 +10,54 @@ import {
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DotsSixIcon as Grip } from '@phosphor-icons/react/DotsSix'
-import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
 import { CheckIcon as Check } from '@phosphor-icons/react/Check'
+import { CopySimpleIcon as CopySimple } from '@phosphor-icons/react/CopySimple'
 import { MagnifyingGlassIcon as Search } from '@phosphor-icons/react/MagnifyingGlass'
 import { SquareIcon as Square } from '@phosphor-icons/react/Square'
 import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type { CollectionView, StickerSourceKind } from '../../../shared/domain.js'
+import {
+  boxSelectionScrollDelta,
+  hasCrossedBoxSelectionThreshold,
+  intersectRectangles,
+  rectanglesIntersect,
+  viewportPointInScrollContent,
+} from './boxSelection.js'
 import { ProgressiveImage } from './ProgressiveImage.js'
+import { MenuSelect } from './MenuSelect.js'
 import { useProgressiveCount } from './useProgressiveCount.js'
 
 type Asset = CollectionView['assets'][number]
+type CopyStatus = 'idle' | 'copying' | 'copied' | 'failed'
 
 const INITIAL_TILE_COUNT = 72
 const TILE_BATCH_SIZE = 48
+const BOX_SELECTION_THRESHOLD = 5
+
+interface BoxSelectionSession {
+  pointerId: number
+  startContentX: number
+  startContentY: number
+  clientX: number
+  clientY: number
+  active: boolean
+  targetIds: Set<string>
+  scrollElement: HTMLElement
+}
+
+function findPickerScrollElement(grid: HTMLElement): HTMLElement {
+  for (let element = grid.parentElement; element; element = element.parentElement) {
+    const overflowY = window.getComputedStyle(element).overflowY
+    if (
+      (overflowY === 'auto' || overflowY === 'scroll') &&
+      element.scrollHeight > element.clientHeight
+    ) {
+      return element
+    }
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+}
 
 export interface StickerPickerProps {
   assets: Asset[]
@@ -56,6 +90,14 @@ export function StickerPicker({
   const [media, setMedia] = useState<'all' | 'static' | 'animated'>('all')
   const [source, setSource] = useState('all')
   const [preview, setPreview] = useState<Asset | null>(null)
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
+  const gridRef = useRef<HTMLDivElement>(null)
+  const marqueeRef = useRef<HTMLDivElement>(null)
+  const boxSelectionRef = useRef<BoxSelectionSession | null>(null)
+  const boxSelectionFrameRef = useRef<number | null>(null)
+  const boxSelectionMoveFrameRef = useRef<number | null>(null)
+  const removeBoxSelectionListenersRef = useRef<() => void>(() => undefined)
+  const suppressPreviewRef = useRef(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const selected = useMemo(() => new Set(selectedIds), [selectedIds])
   const sourceOptions = useMemo(() => {
@@ -83,13 +125,11 @@ export function StickerPicker({
   )
   const baseOrder = useMemo(
     () =>
-      mode === 'export'
-        ? [...orderedIds, ...assets.map((asset) => asset.id).filter((id) => !selected.has(id))]
-        : assets
-            .slice()
-            .sort((a, b) => a.userOrder - b.userOrder)
-            .map((asset) => asset.id),
-    [assets, mode, orderedIds, selected],
+      assets
+        .slice()
+        .sort((a, b) => a.userOrder - b.userOrder)
+        .map((asset) => asset.id),
+    [assets],
   )
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('zh-Hans-CN')
@@ -121,6 +161,29 @@ export function StickerPicker({
     [selectedIds],
   )
 
+  useEffect(
+    () => () => {
+      if (boxSelectionFrameRef.current !== null) {
+        window.cancelAnimationFrame(boxSelectionFrameRef.current)
+      }
+      if (boxSelectionMoveFrameRef.current !== null) {
+        window.cancelAnimationFrame(boxSelectionMoveFrameRef.current)
+      }
+      removeBoxSelectionListenersRef.current()
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!preview) return
+    setCopyStatus('idle')
+    function closePreview(event: KeyboardEvent) {
+      if (event.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', closePreview)
+    return () => window.removeEventListener('keydown', closePreview)
+  }, [preview])
+
   function toggle(id: string) {
     if (selected.has(id)) {
       onSelection(selectedIds.filter((candidate) => candidate !== id))
@@ -128,6 +191,33 @@ export function StickerPicker({
     } else {
       onSelection([...selectedIds, id])
       if (mode === 'export') onOrder([...orderedIds, id])
+    }
+  }
+
+  function selectMany(ids: string[]) {
+    const additions = ids.filter((id) => !selected.has(id))
+    if (!additions.length) return
+    onSelection([...selectedIds, ...additions])
+    if (mode === 'export') {
+      const ordered = new Set(orderedIds)
+      const orderAdditions = additions.filter((id) => !ordered.has(id))
+      if (orderAdditions.length) onOrder([...orderedIds, ...orderAdditions])
+    }
+  }
+
+  async function copyPreviewImage() {
+    if (!preview || copyStatus === 'copying') return
+    const api = window.stickerApp
+    if (!api) {
+      setCopyStatus('failed')
+      return
+    }
+    setCopyStatus('copying')
+    try {
+      await api.copyAssetImage(preview.id)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('failed')
     }
   }
 
@@ -142,6 +232,219 @@ export function StickerPicker({
     if (from < 0 || to < 0) return
     order.splice(to, 0, ...order.splice(from, 1))
     onOrder(order)
+  }
+
+  function clearBoxSelectionVisuals(grid: HTMLDivElement) {
+    grid.classList.remove('is-box-selecting')
+    for (const tile of grid.querySelectorAll<HTMLElement>('[data-picker-asset-id]')) {
+      tile.classList.remove('is-box-target')
+    }
+    if (marqueeRef.current) marqueeRef.current.hidden = true
+  }
+
+  function stopBoxSelectionScroll() {
+    if (boxSelectionFrameRef.current === null) return
+    window.cancelAnimationFrame(boxSelectionFrameRef.current)
+    boxSelectionFrameRef.current = null
+  }
+
+  function updateBoxSelectionVisuals(session: BoxSelectionSession) {
+    const grid = gridRef.current
+    const marquee = marqueeRef.current
+    if (!grid || !marquee) return
+    const scrollLeft = session.scrollElement.scrollLeft
+    const scrollTop = session.scrollElement.scrollTop
+    const current = viewportPointInScrollContent(
+      session.clientX,
+      session.clientY,
+      scrollLeft,
+      scrollTop,
+    )
+    const selection = {
+      top: Math.min(session.startContentY, current.y),
+      right: Math.max(session.startContentX, current.x),
+      bottom: Math.max(session.startContentY, current.y),
+      left: Math.min(session.startContentX, current.x),
+    }
+    const gridBounds = grid.getBoundingClientRect()
+    const gridContent = {
+      top: gridBounds.top + scrollTop,
+      right: gridBounds.right + scrollLeft,
+      bottom: gridBounds.bottom + scrollTop,
+      left: gridBounds.left + scrollLeft,
+    }
+    const documentScrollElement = document.scrollingElement
+    const scrollViewport =
+      session.scrollElement === documentScrollElement
+        ? { top: 0, right: window.innerWidth, bottom: window.innerHeight, left: 0 }
+        : session.scrollElement.getBoundingClientRect()
+    const footer = grid.closest('.workflow-workspace')?.querySelector('.workspace-footer')
+    const visibleClientBottom = Math.min(
+      scrollViewport.bottom,
+      footer?.getBoundingClientRect().top ?? scrollViewport.bottom,
+    )
+    const visibleContent = {
+      top: Math.max(gridBounds.top, scrollViewport.top) + scrollTop,
+      right: Math.min(gridBounds.right, scrollViewport.right) + scrollLeft,
+      bottom: Math.min(gridBounds.bottom, visibleClientBottom) + scrollTop,
+      left: Math.max(gridBounds.left, scrollViewport.left) + scrollLeft,
+    }
+    const visualSelection = intersectRectangles(selection, visibleContent)
+    marquee.hidden = !visualSelection
+    if (visualSelection) {
+      marquee.style.transform = `translate(${visualSelection.left - gridContent.left}px, ${visualSelection.top - gridContent.top}px)`
+      marquee.style.width = `${visualSelection.right - visualSelection.left}px`
+      marquee.style.height = `${visualSelection.bottom - visualSelection.top}px`
+    }
+    grid.classList.add('is-box-selecting')
+
+    const nextTargets = new Set<string>()
+    for (const tile of grid.querySelectorAll<HTMLElement>('[data-picker-asset-id]')) {
+      const bounds = tile.getBoundingClientRect()
+      const targeted = rectanglesIntersect(selection, {
+        top: bounds.top + scrollTop,
+        right: bounds.right + scrollLeft,
+        bottom: bounds.bottom + scrollTop,
+        left: bounds.left + scrollLeft,
+      })
+      tile.classList.toggle('is-box-target', targeted)
+      if (targeted) nextTargets.add(tile.dataset.pickerAssetId!)
+    }
+    session.targetIds = nextTargets
+  }
+
+  function continueBoxSelectionScroll() {
+    boxSelectionFrameRef.current = null
+    const session = boxSelectionRef.current
+    if (!session?.active) return
+    const documentScrollElement = document.scrollingElement
+    const scrollBounds =
+      session.scrollElement === documentScrollElement
+        ? { top: 0, height: window.innerHeight }
+        : session.scrollElement.getBoundingClientRect()
+    const delta = boxSelectionScrollDelta(session.clientY - scrollBounds.top, scrollBounds.height)
+    if (delta === 0) return
+    session.scrollElement.scrollBy({ top: delta, behavior: 'auto' })
+    updateBoxSelectionVisuals(session)
+    boxSelectionFrameRef.current = window.requestAnimationFrame(continueBoxSelectionScroll)
+  }
+
+  function startBoxSelectionScroll() {
+    if (boxSelectionFrameRef.current !== null) return
+    boxSelectionFrameRef.current = window.requestAnimationFrame(continueBoxSelectionScroll)
+  }
+
+  function scheduleBoxSelectionVisuals(session: BoxSelectionSession) {
+    if (boxSelectionMoveFrameRef.current !== null) return
+    boxSelectionMoveFrameRef.current = window.requestAnimationFrame(() => {
+      boxSelectionMoveFrameRef.current = null
+      if (boxSelectionRef.current === session) updateBoxSelectionVisuals(session)
+    })
+  }
+
+  function startBoxSelection(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return
+    const target = event.target as HTMLElement
+    if (target.closest('.picker-select, .picker-drag')) return
+    const scrollElement = findPickerScrollElement(event.currentTarget)
+    const start = viewportPointInScrollContent(
+      event.clientX,
+      event.clientY,
+      scrollElement.scrollLeft,
+      scrollElement.scrollTop,
+    )
+    boxSelectionRef.current = {
+      pointerId: event.pointerId,
+      startContentX: start.x,
+      startContentY: start.y,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      active: false,
+      targetIds: new Set(),
+      scrollElement,
+    }
+    window.addEventListener('pointermove', moveBoxSelection)
+    window.addEventListener('pointerup', finishBoxSelection)
+    window.addEventListener('pointercancel', cancelBoxSelection)
+    removeBoxSelectionListenersRef.current = () => {
+      window.removeEventListener('pointermove', moveBoxSelection)
+      window.removeEventListener('pointerup', finishBoxSelection)
+      window.removeEventListener('pointercancel', cancelBoxSelection)
+    }
+  }
+
+  function moveBoxSelection(event: PointerEvent) {
+    const session = boxSelectionRef.current
+    const grid = gridRef.current
+    const marquee = marqueeRef.current
+    if (!session || session.pointerId !== event.pointerId || !grid || !marquee) return
+    session.clientX = event.clientX
+    session.clientY = event.clientY
+    const current = viewportPointInScrollContent(
+      event.clientX,
+      event.clientY,
+      session.scrollElement.scrollLeft,
+      session.scrollElement.scrollTop,
+    )
+    if (
+      !session.active &&
+      !hasCrossedBoxSelectionThreshold(
+        session.startContentX,
+        session.startContentY,
+        current.x,
+        current.y,
+        BOX_SELECTION_THRESHOLD,
+      )
+    ) {
+      return
+    }
+    if (!session.active) {
+      session.active = true
+    }
+    event.preventDefault()
+    scheduleBoxSelectionVisuals(session)
+    startBoxSelectionScroll()
+  }
+
+  function finishBoxSelection(event: PointerEvent) {
+    const session = boxSelectionRef.current
+    const grid = gridRef.current
+    if (!session || session.pointerId !== event.pointerId || !grid) return
+    session.clientX = event.clientX
+    session.clientY = event.clientY
+    if (boxSelectionMoveFrameRef.current !== null) {
+      window.cancelAnimationFrame(boxSelectionMoveFrameRef.current)
+      boxSelectionMoveFrameRef.current = null
+    }
+    if (session.active) updateBoxSelectionVisuals(session)
+    boxSelectionRef.current = null
+    removeBoxSelectionListenersRef.current()
+    stopBoxSelectionScroll()
+    clearBoxSelectionVisuals(grid)
+    if (!session.active) return
+
+    suppressPreviewRef.current = true
+    window.setTimeout(() => {
+      suppressPreviewRef.current = false
+    }, 0)
+    selectMany(
+      renderedAssets.filter((asset) => session.targetIds.has(asset.id)).map((asset) => asset.id),
+    )
+  }
+
+  function cancelBoxSelection(event: PointerEvent) {
+    const session = boxSelectionRef.current
+    const grid = gridRef.current
+    if (!session || session.pointerId !== event.pointerId || !grid) return
+    boxSelectionRef.current = null
+    removeBoxSelectionListenersRef.current()
+    stopBoxSelectionScroll()
+    if (boxSelectionMoveFrameRef.current !== null) {
+      window.cancelAnimationFrame(boxSelectionMoveFrameRef.current)
+      boxSelectionMoveFrameRef.current = null
+    }
+    if (grid.hasPointerCapture(event.pointerId)) grid.releasePointerCapture(event.pointerId)
+    clearBoxSelectionVisuals(grid)
   }
 
   const animatedSelected = assets.filter((asset) => selected.has(asset.id) && asset.animated).length
@@ -178,16 +481,13 @@ export function StickerPicker({
       <div className="picker-selection-bar">
         <span>
           <strong>{selectedIds.length}</strong> 张已选择 · 包含 {animatedSelected} 张动图
+          <small>拖过缩略图可框选多张</small>
         </span>
         <div>
           <button
             type="button"
             onClick={() => {
-              const visibleIds = visible.map((asset) => asset.id)
-              onSelection([...selectedIds, ...visibleIds.filter((id) => !selected.has(id))])
-              if (mode === 'export') {
-                onOrder([...orderedIds, ...visibleIds.filter((id) => !orderedIds.includes(id))])
-              }
+              selectMany(visible.map((asset) => asset.id))
             }}
           >
             选择当前结果
@@ -219,7 +519,28 @@ export function StickerPicker({
             items={renderedAssets.map((asset) => asset.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="picker-grid">
+            <div
+              className="picker-grid"
+              ref={gridRef}
+              onPointerDown={startBoxSelection}
+              onDragStart={(event) => {
+                if (!(event.target as HTMLElement).closest('.picker-drag')) {
+                  event.preventDefault()
+                }
+              }}
+              onClickCapture={(event) => {
+                if (!suppressPreviewRef.current) return
+                suppressPreviewRef.current = false
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+            >
+              <div
+                className="picker-selection-marquee"
+                ref={marqueeRef}
+                hidden
+                aria-hidden="true"
+              />
               {renderedAssets.map((asset) => (
                 <PickerTile
                   key={asset.id}
@@ -256,14 +577,37 @@ export function StickerPicker({
             aria-label={`预览 ${preview.displayName}`}
             onClick={(event) => event.stopPropagation()}
           >
-            <button type="button" onClick={() => setPreview(null)} aria-label="关闭预览">
+            <button
+              className="preview-close"
+              type="button"
+              onClick={() => setPreview(null)}
+              aria-label="关闭预览"
+            >
               <X size={18} />
             </button>
             <ProgressiveImage src={preview.previewUrl} alt={preview.displayName} eager />
             <strong>{preview.displayName}</strong>
-            <span>
-              {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
-            </span>
+            <div className="preview-meta">
+              <span>
+                {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
+              </span>
+              <button
+                type="button"
+                disabled={copyStatus === 'copying'}
+                aria-live="polite"
+                title={preview.animated ? '复制动图首帧' : '复制图片'}
+                onClick={() => void copyPreviewImage()}
+              >
+                {copyStatus === 'copied' ? <Check size={13} /> : <CopySimple size={13} />}
+                {copyStatus === 'copying'
+                  ? '复制中'
+                  : copyStatus === 'copied'
+                    ? '已复制'
+                    : copyStatus === 'failed'
+                      ? '重试复制'
+                      : '复制'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -280,60 +624,14 @@ function SourceFilter({
   options: Array<[string, string]>
   onChange(value: string): void
 }) {
-  const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
   const allOptions: Array<[string, string]> = [['all', '全部来源'], ...options]
-  const label = allOptions.find(([option]) => option === value)?.[1] ?? '全部来源'
-
-  useEffect(() => {
-    if (!open) return
-    function closeOnOutsidePointer(event: PointerEvent) {
-      if (!root.current?.contains(event.target as Node)) setOpen(false)
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('pointerdown', closeOnOutsidePointer)
-    window.addEventListener('keydown', closeOnEscape)
-    return () => {
-      window.removeEventListener('pointerdown', closeOnOutsidePointer)
-      window.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [open])
-
   return (
-    <div className="source-filter" ref={root}>
-      <button
-        className="source-filter-trigger"
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span>{label}</span>
-        <CaretDown size={15} weight="bold" />
-      </button>
-      {open && (
-        <div className="source-filter-menu" role="listbox" aria-label="按来源筛选">
-          {allOptions.map(([option, optionLabel]) => (
-            <button
-              className={option === value ? 'is-selected' : ''}
-              type="button"
-              role="option"
-              aria-selected={option === value}
-              key={option}
-              onClick={() => {
-                onChange(option)
-                setOpen(false)
-              }}
-            >
-              <span>{optionLabel}</span>
-              {option === value && <Check size={15} weight="bold" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <MenuSelect
+      value={value}
+      options={allOptions.map(([option, label]) => ({ value: option, label }))}
+      ariaLabel="按来源筛选"
+      onChange={onChange}
+    />
   )
 }
 
@@ -361,6 +659,7 @@ function PickerTile({
         transition: sortable.transition,
       }}
       className={`picker-tile${selected ? ' is-selected' : ''}${sortable.isDragging ? ' is-dragging' : ''}`}
+      data-picker-asset-id={asset.id}
     >
       <button className="picker-preview" type="button" onClick={onPreview}>
         <ProgressiveImage src={asset.previewUrl} alt={asset.displayName} />

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
+import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
@@ -14,6 +15,8 @@ import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type {
   CollectionView,
+  DefaultExportDirectoryView,
+  ExportDirectoryView,
   ExportTask,
   ExportTaskDraft,
   ImportFailure,
@@ -28,6 +31,7 @@ import type {
   WhatsAppConnectionView,
 } from '../../shared/domain.js'
 import { AppShell, type AppPage } from './components/AppShell.js'
+import { PathDisplay } from './components/PathDisplay.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerPicker } from './components/StickerPicker.js'
 import { useProgressiveCount } from './components/useProgressiveCount.js'
@@ -76,6 +80,8 @@ export function App() {
   const [page, setPage] = useState<AppPage>('export')
   const [collection, setCollection] = useState<CollectionView | null>(null)
   const [task, setTask] = useState<ExportTask | null>(null)
+  const [taskDirectory, setTaskDirectory] = useState<ExportDirectoryView | null>(null)
+  const [defaultDirectory, setDefaultDirectory] = useState<DefaultExportDirectoryView | null>(null)
   const taskRef = useRef<ExportTask | null>(null)
   const saveQueue = useRef(Promise.resolve())
   const [snapshots, setSnapshots] = useState<PreparedSnapshotSummary[]>([])
@@ -104,14 +110,24 @@ export function App() {
     const unsubscribeStatus = api.onWhatsAppStatus(setWhatsApp)
     Promise.all([
       api.getCollection(),
-      api.getExportTask(),
+      api.getExportTask().then(async (nextTask) => ({
+        task: nextTask,
+        directory:
+          nextTask.destination?.kind === 'local-folder' && nextTask.destination.directoryId
+            ? await api.getExportDirectory(nextTask.destination.directoryId)
+            : undefined,
+      })),
       api.listPreparedSnapshots(),
       api.getWhatsAppStatus(),
+      api.getDefaultExportDirectory(),
     ])
-      .then(([nextCollection, nextTask, nextSnapshots, status]) => {
+      .then(([nextCollection, taskResult, nextSnapshots, status, nextDefaultDirectory]) => {
+        const { task: nextTask, directory: nextTaskDirectory } = taskResult
         setCollection(nextCollection)
         taskRef.current = nextTask
         setTask(nextTask)
+        setTaskDirectory(nextTaskDirectory ?? null)
+        setDefaultDirectory(nextDefaultDirectory ?? null)
         setSnapshots(nextSnapshots)
         setWhatsApp(status)
       })
@@ -123,6 +139,12 @@ export function App() {
       unsubscribeStatus()
     }
   }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.querySelector<HTMLElement>('.product-main')?.scrollTo({ top: 0, left: 0 })
+    document.querySelector<HTMLElement>('.workflow-scroll-region')?.scrollTo({ top: 0, left: 0 })
+  }, [page, task?.currentStep])
 
   function showError(reason: unknown) {
     setError(reason instanceof Error ? reason.message : String(reason))
@@ -163,9 +185,15 @@ export function App() {
     setPage(nextPage)
   }
 
+  function dismissWechatPanels() {
+    setWechat4Open(false)
+    setLegacyOpen(false)
+  }
+
   async function importAssets(mode: ImportMode) {
     const api = window.stickerApp
     if (!api) return
+    dismissWechatPanels()
     setBusy(true)
     setError(null)
     setFailures([])
@@ -220,9 +248,20 @@ export function App() {
   }
 
   async function chooseLocalDestination() {
-    const choice = await window.stickerApp?.chooseExportDirectory()
-    if (!choice) return
-    updateTask({ destination: choice, currentStep: 3 })
+    const currentDirectoryId =
+      taskRef.current?.destination?.kind === 'local-folder'
+        ? taskRef.current.destination.directoryId
+        : undefined
+    const directory = await window.stickerApp?.chooseExportDirectory(currentDirectoryId)
+    if (!directory) return
+    setTaskDirectory(directory)
+    updateTask({ destination: directory.choice })
+  }
+
+  async function chooseDefaultDirectory() {
+    const directory = await window.stickerApp?.chooseDefaultExportDirectory()
+    if (!directory) return
+    setDefaultDirectory(directory)
   }
 
   async function prepareTask() {
@@ -360,6 +399,8 @@ export function App() {
         busy={busy}
         progress={progress}
         failures={failures}
+        taskDirectory={taskDirectory}
+        defaultDirectory={defaultDirectory}
         onTask={updateTask}
         onStep={moveToStep}
         onLocalImport={importAssets}
@@ -371,6 +412,7 @@ export function App() {
           setWechat4Open(false)
           setLegacyOpen(true)
         }}
+        onDismissWechat={dismissWechatPanels}
         wechatPanel={
           wechat4Open ? (
             <Wechat4Panel
@@ -437,7 +479,11 @@ export function App() {
         }
       />
     ) : page === 'settings' ? (
-      <SettingsPage task={task} onChooseDirectory={chooseLocalDestination} />
+      <SettingsPage
+        task={task}
+        defaultDirectory={defaultDirectory}
+        onChooseDirectory={chooseDefaultDirectory}
+      />
     ) : (
       <AboutPage />
     )
@@ -447,7 +493,19 @@ export function App() {
       page={page}
       onNavigate={navigate}
       rail={
-        page === 'export' && task ? <WorkflowRail task={task} onStep={moveToStep} /> : undefined
+        page === 'export' && task ? (
+          <WorkflowRail
+            task={task}
+            directoryPath={
+              task.destination?.kind === 'local-folder' &&
+              taskDirectory &&
+              task.destination.directoryId === taskDirectory?.choice.directoryId
+                ? taskDirectory.path
+                : undefined
+            }
+            onStep={moveToStep}
+          />
+        ) : undefined
       }
     >
       {error && (
@@ -488,11 +546,14 @@ interface ExportPageProps {
   busy: boolean
   progress: ImportProgress | null
   failures: ImportFailure[]
+  taskDirectory: ExportDirectoryView | null
+  defaultDirectory: DefaultExportDirectoryView | null
   onTask(patch: Partial<ExportTaskDraft>): void
   onStep(step: ExportTask['currentStep']): void
   onLocalImport(mode: ImportMode): void
   onWechat4(): void
   onLegacy(): void
+  onDismissWechat(): void
   wechatPanel: React.ReactNode
   onChooseLocalDestination(): void
   onPrepare(): void
@@ -535,7 +596,62 @@ function StepHeading({
   )
 }
 
+function WorkflowFooter({
+  title,
+  detail,
+  actionLabel,
+  disabled,
+  onAction,
+}: {
+  title: React.ReactNode
+  detail?: React.ReactNode
+  actionLabel: string
+  disabled?: boolean
+  onAction(): void
+}) {
+  return (
+    <footer className="workspace-footer">
+      <span>
+        <strong>{title}</strong>
+        {detail && <small>{detail}</small>}
+      </span>
+      <button className="primary-button" type="button" disabled={disabled} onClick={onAction}>
+        {actionLabel}
+      </button>
+    </footer>
+  )
+}
+
+function WorkflowStepWithFooter({
+  children,
+  ...footerProps
+}: React.PropsWithChildren<React.ComponentProps<typeof WorkflowFooter>>) {
+  return (
+    <div className="workflow-workspace has-workspace-footer">
+      <div className="workflow-scroll-region">{children}</div>
+      <WorkflowFooter {...footerProps} />
+    </div>
+  )
+}
+
 function SourceStep(props: ExportPageProps) {
+  const initialFocus = props.task.source?.kind.startsWith('wechat')
+    ? 'wechat'
+    : props.task.source?.kind === 'local'
+      ? 'local'
+      : props.task.source?.kind === 'library'
+        ? 'library'
+        : 'wechat'
+  const [focusedSource, setFocusedSource] = useState<'wechat' | 'local' | 'library'>(initialFocus)
+
+  useEffect(() => {
+    if (props.wechatPanel) setFocusedSource('wechat')
+  }, [props.wechatPanel])
+
+  function focusCard(event: React.MouseEvent<HTMLElement>) {
+    if (!(event.target as HTMLElement).closest('button')) event.currentTarget.focus()
+  }
+
   return (
     <div className="workflow-workspace">
       <StepHeading
@@ -543,7 +659,13 @@ function SourceStep(props: ExportPageProps) {
         description="选择这次传输的素材来源。新导入的内容会安全保存到我的表情库。"
       />
       <div className="choice-list">
-        <section className="choice-row is-featured">
+        <section
+          className={`choice-row${focusedSource === 'wechat' ? ' is-selected' : ''}`}
+          tabIndex={0}
+          aria-label="从微信导入"
+          onFocus={() => setFocusedSource('wechat')}
+          onClick={focusCard}
+        >
           <span className="destination-icon wechat">
             <WechatLogo size={34} weight="fill" />
           </span>
@@ -553,16 +675,42 @@ function SourceStep(props: ExportPageProps) {
             <small>需要明确授权。不会修改原微信。</small>
           </div>
           <div className="choice-actions">
-            <button className="primary-button" type="button" onClick={props.onWechat4}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setFocusedSource('wechat')
+                props.onWechat4()
+              }}
+            >
               选择微信
             </button>
-            <button className="text-button" type="button" onClick={props.onLegacy}>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setFocusedSource('wechat')
+                props.onLegacy()
+              }}
+            >
               旧版微信
             </button>
           </div>
         </section>
         {props.wechatPanel && <div className="source-inline-panel">{props.wechatPanel}</div>}
-        <section className="choice-row">
+        <section
+          className={`choice-row${focusedSource === 'local' ? ' is-selected' : ''}`}
+          tabIndex={0}
+          aria-label="从本机导入"
+          onFocus={() => {
+            setFocusedSource('local')
+          }}
+          onClick={(event) => {
+            setFocusedSource('local')
+            props.onDismissWechat()
+            focusCard(event)
+          }}
+        >
           <span className="destination-icon">
             <FolderOpen size={32} />
           </span>
@@ -590,11 +738,13 @@ function SourceStep(props: ExportPageProps) {
           </div>
         </section>
         <button
-          className="choice-row choice-button"
+          className={`choice-row choice-button${focusedSource === 'library' ? ' is-selected' : ''}`}
           type="button"
-          onClick={() =>
+          onFocus={() => setFocusedSource('library')}
+          onClick={() => {
+            props.onDismissWechat()
             props.onTask({ source: { kind: 'library', label: '我的表情库' }, currentStep: 2 })
-          }
+          }}
         >
           <span className="destination-icon">
             <Images size={32} />
@@ -626,8 +776,37 @@ function SourceStep(props: ExportPageProps) {
 
 function DestinationStep(props: ExportPageProps) {
   const connected = props.whatsApp?.phase === 'connected'
+  const selectedLocalPath =
+    props.task.destination?.kind === 'local-folder' &&
+    props.taskDirectory &&
+    props.task.destination.directoryId === props.taskDirectory?.choice.directoryId
+      ? props.taskDirectory.path
+      : undefined
+  const destinationReady =
+    (props.task.destination?.kind === 'whatsapp' && connected) ||
+    (props.task.destination?.kind === 'local-folder' && Boolean(props.task.destination.directoryId))
+  const destinationTitle = !destinationReady
+    ? '尚未选择目的地'
+    : props.task.destination?.kind === 'whatsapp'
+      ? '已选择 WhatsApp'
+      : '已选择本地文件夹'
+  const destinationDetail = !destinationReady ? (
+    '选择一个目的地后即可继续。'
+  ) : props.task.destination?.kind === 'whatsapp' ? (
+    'WhatsApp 已连接，可以继续挑选表情。'
+  ) : selectedLocalPath ? (
+    <PathDisplay path={selectedLocalPath} prefix="将导出到 " />
+  ) : (
+    `将导出到 ${props.task.destination?.directoryLabel ?? '所选文件夹'}。`
+  )
   return (
-    <div className="workflow-workspace">
+    <WorkflowStepWithFooter
+      title={destinationTitle}
+      detail={destinationDetail}
+      actionLabel="下一步"
+      disabled={!destinationReady}
+      onAction={() => props.onStep(3)}
+    >
       <StepHeading
         title="选择目的地"
         description="目的地是必选项。只有 WhatsApp 需要先建立连接。"
@@ -635,6 +814,11 @@ function DestinationStep(props: ExportPageProps) {
       <div className="choice-list">
         <section
           className={`choice-row${props.task.destination?.kind === 'whatsapp' ? ' is-selected' : ''}`}
+          tabIndex={0}
+          aria-label="选择 WhatsApp"
+          onClick={(event) => {
+            if (!(event.target as HTMLElement).closest('button')) event.currentTarget.focus()
+          }}
         >
           <span className="destination-icon whatsapp">
             <WhatsappLogo size={34} />
@@ -650,9 +834,7 @@ function DestinationStep(props: ExportPageProps) {
           <button
             className={connected ? 'primary-button' : 'secondary-button'}
             type="button"
-            onClick={() =>
-              props.onTask({ destination: { kind: 'whatsapp' }, currentStep: connected ? 3 : 2 })
-            }
+            onClick={() => props.onTask({ destination: { kind: 'whatsapp' } })}
           >
             {connected ? '选择' : '连接并选择'}
           </button>
@@ -675,10 +857,17 @@ function DestinationStep(props: ExportPageProps) {
           <span>
             <strong>导出到本地文件夹</strong>
             <small>
-              {props.task.destination?.kind === 'local-folder' &&
-              props.task.destination.directoryLabel
-                ? props.task.destination.directoryLabel
-                : '复制或转换后保存到你选择的位置'}
+              {props.task.destination?.kind === 'local-folder' ? (
+                selectedLocalPath ? (
+                  <PathDisplay path={selectedLocalPath} />
+                ) : (
+                  (props.task.destination.directoryLabel ?? '本次导出位置')
+                )
+              ) : props.defaultDirectory?.path ? (
+                <PathDisplay path={props.defaultDirectory.path} prefix="默认位置：" />
+              ) : (
+                '尚未设置默认位置，点击选择本次导出位置'
+              )}
             </small>
           </span>
           <ArrowRight size={20} />
@@ -693,15 +882,7 @@ function DestinationStep(props: ExportPageProps) {
           </div>
         </section>
       </div>
-      {connected && props.task.destination?.kind === 'whatsapp' && (
-        <div className="workspace-footer">
-          <span>WhatsApp 已连接</span>
-          <button className="primary-button" type="button" onClick={() => props.onStep(3)}>
-            下一步
-          </button>
-        </div>
-      )}
-    </div>
+    </WorkflowStepWithFooter>
   )
 }
 
@@ -709,8 +890,26 @@ function PickerStep(props: ExportPageProps) {
   const animated = props.collection.assets.filter(
     (asset) => props.task.selectedAssetIds.includes(asset.id) && asset.animated,
   ).length
+  const hasSelection = props.task.selectedAssetIds.length > 0
   return (
-    <div className="workflow-workspace picker-workspace">
+    <WorkflowStepWithFooter
+      title={hasSelection ? `${props.task.selectedAssetIds.length} 张已选择` : '尚未选择表情'}
+      detail={
+        hasSelection ? (
+          <>
+            包含 {animated} 张动图。
+            {props.task.destination?.kind === 'whatsapp'
+              ? '静态和动图会自动分开传输。'
+              : '将按本地文件夹规则分组。'}
+          </>
+        ) : (
+          '至少选择一张表情后即可继续。'
+        )
+      }
+      actionLabel="下一步"
+      disabled={!hasSelection}
+      onAction={() => props.onStep(4)}
+    >
       <StepHeading
         title="挑选表情"
         description={`我的表情库共有 ${props.collection.assets.length} 张素材。本次选择不会改变素材库的管理选择或全局顺序。`}
@@ -726,26 +925,7 @@ function PickerStep(props: ExportPageProps) {
         onSelection={(ids) => props.onTask({ selectedAssetIds: ids })}
         onOrder={(ids) => props.onTask({ orderedAssetIds: ids })}
       />
-      <div className="workspace-footer">
-        <span>
-          <strong>{props.task.selectedAssetIds.length} 张已选择</strong>
-          <small>
-            包含 {animated} 张动图。
-            {props.task.destination?.kind === 'whatsapp'
-              ? '静态和动图会自动分开传输。'
-              : '将按本地文件夹规则分组。'}
-          </small>
-        </span>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={!props.task.selectedAssetIds.length}
-          onClick={() => props.onStep(4)}
-        >
-          继续
-        </button>
-      </div>
-    </div>
+    </WorkflowStepWithFooter>
   )
 }
 
@@ -810,6 +990,13 @@ function TransferStep(props: ExportPageProps) {
       ) : (
         <LocalTransferFields
           task={task}
+          directoryPath={
+            task.destination?.kind === 'local-folder' &&
+            props.taskDirectory &&
+            task.destination.directoryId === props.taskDirectory?.choice.directoryId
+              ? props.taskDirectory.path
+              : undefined
+          }
           onTask={props.onTask}
           onChooseDestination={props.onChooseLocalDestination}
         />
@@ -858,11 +1045,9 @@ function TransferStep(props: ExportPageProps) {
             {warning}
           </p>
         ))}
-        {prepared?.assetFailures.map((failure) => (
-          <p className="inline-note warning" key={failure.assetId}>
-            一张异常素材未能准备：{failure.message}
-          </p>
-        ))}
+        {prepared && prepared.assetFailures.length > 0 && (
+          <PreparationFailurePanel key={prepared.fingerprint} failures={prepared.assetFailures} />
+        )}
         {prepared && (
           <div className="prepared-groups">
             {renderedGroups.map((group) => (
@@ -948,12 +1133,49 @@ function TransferStep(props: ExportPageProps) {
   )
 }
 
+function PreparationFailurePanel({
+  failures,
+}: {
+  failures: PrepareExportSummary['assetFailures']
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const detailId = useId()
+
+  return (
+    <section className="preparation-failures" aria-live="polite">
+      <button
+        className="preparation-failures-trigger"
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={expanded ? detailId : undefined}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <WarningCircle size={17} />
+        <span>
+          <strong>{failures.length} 张异常素材未能准备</strong>
+          {expanded && <small>收起错误详情</small>}
+        </span>
+        <CaretDown size={16} weight="bold" aria-hidden="true" />
+      </button>
+      {expanded && (
+        <ul id={detailId}>
+          {failures.map((failure) => (
+            <li key={failure.assetId}>{failure.message}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function LocalTransferFields({
   task,
+  directoryPath,
   onTask,
   onChooseDestination,
 }: {
   task: ExportTask
+  directoryPath?: string
   onTask(patch: Partial<ExportTaskDraft>): void
   onChooseDestination(): void
 }) {
@@ -963,9 +1185,13 @@ function LocalTransferFields({
         <FolderOpen size={20} />
         <span>
           <strong>
-            {task.destination?.kind === 'local-folder'
-              ? (task.destination.directoryLabel ?? '选择导出位置')
-              : '选择导出位置'}
+            {directoryPath ? (
+              <PathDisplay path={directoryPath} />
+            ) : task.destination?.kind === 'local-folder' ? (
+              (task.destination.directoryLabel ?? '选择导出位置')
+            ) : (
+              '选择导出位置'
+            )}
           </strong>
           <small>点击更改本地文件夹</small>
         </span>
@@ -1236,9 +1462,11 @@ function ConnectionsPage({
 
 function SettingsPage({
   task,
+  defaultDirectory,
   onChooseDirectory,
 }: {
   task: ExportTask
+  defaultDirectory: DefaultExportDirectoryView | null
   onChooseDirectory(): void
 }) {
   return (
@@ -1262,9 +1490,7 @@ function SettingsPage({
             <span>
               <strong>默认导出位置</strong>
               <small>
-                {task.destination?.kind === 'local-folder'
-                  ? (task.destination.directoryLabel ?? '尚未选择')
-                  : '尚未选择'}
+                {defaultDirectory?.path ? <PathDisplay path={defaultDirectory.path} /> : '尚未选择'}
               </small>
             </span>
             <ArrowRight size={18} />

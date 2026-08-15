@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowClockwiseIcon as ArrowClockwise } from '@phosphor-icons/react/ArrowClockwise'
 import { DownloadSimpleIcon as DownloadSimple } from '@phosphor-icons/react/DownloadSimple'
-import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { WechatLogoIcon as WechatLogo } from '@phosphor-icons/react/WechatLogo'
 import { XIcon as X } from '@phosphor-icons/react/X'
 
@@ -11,6 +10,7 @@ import type {
   LegacyWechatDownloadMode,
   LegacyWechatDiscoveryView,
 } from '../../shared/domain.js'
+import { WechatDownloadSettings } from './components/WechatDownloadSettings.js'
 
 export function WechatLegacyPanel({
   onClose,
@@ -25,7 +25,6 @@ export function WechatLegacyPanel({
   const [loading, setLoading] = useState(true)
   const [importingId, setImportingId] = useState<string | null>(null)
   const [downloadMode, setDownloadMode] = useState<LegacyWechatDownloadMode>('default')
-  const [showSpeedInfo, setShowSpeedInfo] = useState(false)
   const [canceling, setCanceling] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -110,66 +109,11 @@ export function WechatLegacyPanel({
         <p className="wechat-legacy-empty">正在检测本机微信收藏…</p>
       ) : discovery?.accounts.length ? (
         <>
-          <div className="wechat-download-settings">
-            <label htmlFor="wechat-download-speed">下载速度</label>
-            <div>
-              <select
-                id="wechat-download-speed"
-                value={downloadMode}
-                disabled={importingId !== null}
-                onChange={(event) =>
-                  setDownloadMode(event.target.value as LegacyWechatDownloadMode)
-                }
-              >
-                <option value="default">默认速度</option>
-                <option value="fast">快速获取</option>
-                <option value="safe">安全获取</option>
-              </select>
-              <button
-                type="button"
-                className="wechat-speed-info-button"
-                aria-label="查看下载速度说明"
-                aria-expanded={showSpeedInfo}
-                aria-controls="wechat-speed-info"
-                onClick={() => setShowSpeedInfo(true)}
-              >
-                <Info size={17} />
-              </button>
-            </div>
-          </div>
-
-          {showSpeedInfo && (
-            <aside id="wechat-speed-info" className="wechat-speed-info" role="note">
-              <div>
-                <strong>下载速率说明</strong>
-                <p>
-                  微信没有公开此接口的频率阈值。降低请求频率只能减少风险，不能保证不会触发服务端限制。
-                </p>
-              </div>
-              <button
-                type="button"
-                className="panel-close"
-                onClick={() => setShowSpeedInfo(false)}
-                aria-label="关闭下载速度说明"
-              >
-                <X size={15} />
-              </button>
-              <dl>
-                <div>
-                  <dt>默认速度</dt>
-                  <dd>单并发，每张间隔随机 0.5-1.5 秒</dd>
-                </div>
-                <div>
-                  <dt>快速获取</dt>
-                  <dd>4 并发连续下载，适合少量图片或网络稳定时</dd>
-                </div>
-                <div>
-                  <dt>安全获取</dt>
-                  <dd>单并发，每张间隔随机 1.5-3.5 秒</dd>
-                </div>
-              </dl>
-            </aside>
-          )}
+          <WechatDownloadSettings
+            value={downloadMode}
+            disabled={importingId !== null}
+            onChange={setDownloadMode}
+          />
 
           <div className="wechat-account-list">
             {discovery.accounts.map((account) => {

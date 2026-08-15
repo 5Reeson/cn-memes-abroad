@@ -58,6 +58,15 @@ export type ExportSourceChoice =
 export type ExportDestinationChoice =
   { kind: 'whatsapp' } | { kind: 'local-folder'; directoryId?: string; directoryLabel?: string }
 
+export interface ExportDirectoryView {
+  choice: Extract<ExportDestinationChoice, { kind: 'local-folder' }>
+  path: string
+}
+
+export interface DefaultExportDirectoryView {
+  path: string
+}
+
 export interface WhatsAppTransferSettings {
   title: string
   publisher: string
@@ -295,7 +304,8 @@ export interface Wechat4GateStatus {
   message: string
 }
 
-export type LegacyWechatDownloadMode = 'default' | 'fast' | 'safe'
+export type WechatDownloadMode = 'default' | 'fast' | 'safe'
+export type LegacyWechatDownloadMode = WechatDownloadMode
 
 export interface PackSettings {
   title: string

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import sharp from 'sharp'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Wechat4PersonalEmoticon } from '../../src/main/sources/wechat4/personal-emoticon-catalog.js'
 import type { Wechat4PersonalEmoticonReader } from '../../src/main/sources/wechat4/personal-emoticon-reader.js'
@@ -64,6 +64,62 @@ async function fixture(): Promise<{
 }
 
 describe('Wechat4StickerSource', () => {
+  it.each([
+    ['safe', 1],
+    ['fast', 4],
+  ] as const)(
+    'applies %s concurrency to CDN fallback only',
+    async (downloadMode, expectedActive) => {
+      const setup = await fixture()
+      const images = await Promise.all(
+        ['#ff1100ff', '#11ff00ff', '#0011ffff', '#ffaa00ff'].map((background) =>
+          sharp({ create: { width: 9, height: 9, channels: 4, background } })
+            .png()
+            .toBuffer(),
+        ),
+      )
+      const records = images.map((bytes, index) =>
+        record(index, createHash('md5').update(bytes).digest('hex'), {
+          cdnUrl: `https://synthetic.invalid/speed-${index}`,
+        }),
+      )
+      let activeRequests = 0
+      let maximumActiveRequests = 0
+      let releaseRequests: () => void = () => undefined
+      const requestGate = new Promise<void>((resolve) => {
+        releaseRequests = resolve
+      })
+      const source = new Wechat4StickerSource({
+        root: setup.root,
+        temporaryParent: setup.temporaryParent,
+        catalogReader: { read: async () => records },
+        resolutionConcurrency: 4,
+        fetcher: async (input) => {
+          const index = Number(String(input).at(-1))
+          activeRequests += 1
+          maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests)
+          await requestGate
+          activeRequests -= 1
+          return new Response(new Blob([Uint8Array.from(images[index]!)]))
+        },
+        sleeper: async () => undefined,
+      })
+
+      const importing = source.import({
+        accountId: setup.accountId,
+        collection: createDefaultCollection(undefined),
+        collectionDirectory: setup.collectionDirectory,
+        downloadMode,
+      })
+      await vi.waitFor(() => expect(activeRequests).toBe(expectedActive))
+      releaseRequests()
+      await importing
+
+      expect(maximumActiveRequests).toBe(expectedActive)
+      images.forEach((bytes) => bytes.fill(0))
+    },
+  )
+
   it('keeps database order when bounded remote workers finish out of order', async () => {
     const setup = await fixture()
     const images = await Promise.all(

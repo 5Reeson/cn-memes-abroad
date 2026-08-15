@@ -1,6 +1,7 @@
 import type {
   CollectionView,
-  ExportDestinationChoice,
+  DefaultExportDirectoryView,
+  ExportDirectoryView,
   ExportTask,
   ExportTaskDraft,
   ImportMode,
@@ -23,6 +24,7 @@ import type {
   WhatsAppTarget,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  WechatDownloadMode,
 } from './domain.js'
 
 export const IPC_CHANNELS = {
@@ -30,7 +32,10 @@ export const IPC_CHANNELS = {
   getExportTask: 'exports:get-current-task',
   saveExportTask: 'exports:save-current-task',
   resetExportTask: 'exports:reset-current-task',
+  getExportDirectory: 'exports:get-local-directory',
   chooseExportDirectory: 'exports:choose-local-directory',
+  getDefaultExportDirectory: 'settings:get-default-export-directory',
+  chooseDefaultExportDirectory: 'settings:choose-default-export-directory',
   prepareExportTask: 'exports:prepare-current-task',
   cancelExportPreparation: 'exports:cancel-preparation',
   transferLocalExport: 'exports:transfer-local',
@@ -53,6 +58,7 @@ export const IPC_CHANNELS = {
   reorderAssets: 'library:reorder-assets',
   removeAssets: 'library:remove-assets',
   setSelection: 'library:set-selection',
+  copyAssetImage: 'library:copy-asset-image',
   updatePackSettings: 'packs:update-settings',
   preparePacks: 'packs:prepare',
   prepareProgress: 'packs:prepare-progress',
@@ -72,7 +78,10 @@ export interface StickerAppApi {
   getExportTask(): Promise<ExportTask>
   saveExportTask(task: ExportTaskDraft): Promise<ExportTask>
   resetExportTask(): Promise<ExportTask>
-  chooseExportDirectory(): Promise<ExportDestinationChoice | undefined>
+  getExportDirectory(directoryId: string): Promise<ExportDirectoryView | undefined>
+  chooseExportDirectory(directoryId?: string): Promise<ExportDirectoryView | undefined>
+  getDefaultExportDirectory(): Promise<DefaultExportDirectoryView | undefined>
+  chooseDefaultExportDirectory(): Promise<DefaultExportDirectoryView | undefined>
   prepareExportTask(): Promise<PrepareExportSummary>
   cancelExportPreparation(): Promise<boolean>
   transferLocalExport(): Promise<LocalExportSummary>
@@ -88,12 +97,17 @@ export interface StickerAppApi {
   ): Promise<ImportSummary>
   cancelLegacyWechatImport(): Promise<boolean>
   discoverWechat4(): Promise<Wechat4ImportDiscoveryView>
-  importWechat4(accountId: string, confirmed: boolean): Promise<ImportSummary>
+  importWechat4(
+    accountId: string,
+    confirmed: boolean,
+    downloadMode: WechatDownloadMode,
+  ): Promise<ImportSummary>
   cancelWechat4Import(): Promise<boolean>
   confirmWechat4FavoritesReady(): Promise<boolean>
   reorderAssets(orderedIds: string[]): Promise<CollectionView>
   removeAssets(assetIds: string[]): Promise<CollectionView>
   setSelection(selectedIds: string[]): Promise<CollectionView>
+  copyAssetImage(assetId: string): Promise<void>
   updatePackSettings(settings: PackSettings): Promise<CollectionView>
   preparePacks(): Promise<PreparePacksSummary>
   getWhatsAppStatus(): Promise<WhatsAppConnectionView>

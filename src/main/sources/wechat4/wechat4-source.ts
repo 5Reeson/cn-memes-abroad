@@ -9,6 +9,7 @@ import type {
   ImportResult,
   StickerCollection,
   StickerSourceKind,
+  WechatDownloadMode,
 } from '../../../shared/domain.js'
 import {
   LocalStickerSource,
@@ -43,6 +44,7 @@ export interface Wechat4ImportRequest {
   sourceLabel?: string
   collection: StickerCollection
   collectionDirectory: string
+  downloadMode?: WechatDownloadMode
   signal?: AbortSignal
 }
 
@@ -103,6 +105,30 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     }, milliseconds)
     signal?.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+function remoteConcurrencyForDownloadMode(
+  mode: WechatDownloadMode | undefined,
+  configuredConcurrency: number,
+): number {
+  if (mode === 'safe') return 1
+  if (mode === 'default') return Math.min(4, configuredConcurrency)
+  return configuredConcurrency
+}
+
+function concurrencyLimiter(limit: number) {
+  let active = 0
+  const waiting: Array<() => void> = []
+  return async function runLimited<Result>(operation: () => Promise<Result>): Promise<Result> {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve))
+    active += 1
+    try {
+      return await operation()
+    } finally {
+      active -= 1
+      waiting.shift()?.()
+    }
+  }
 }
 
 function safeHttpsUrl(value: string): string | undefined {
@@ -548,6 +574,9 @@ export class Wechat4StickerSource {
       const resolvedInputs = new Array<string | undefined>(records.length)
       const labels = new Map<string, string>()
       const failureByIndex = new Array<ImportFailure | undefined>(records.length)
+      const runRemoteDownload = concurrencyLimiter(
+        remoteConcurrencyForDownloadMode(request.downloadMode, this.resolutionConcurrency),
+      )
       let completed = 0
       const report = async (currentPath?: string) => {
         await onProgress?.({
@@ -611,7 +640,9 @@ export class Wechat4StickerSource {
               resolvedInputs[index] = decryptedCachePath
               labels.set(decryptedCachePath, label)
             } else {
-              const bytes = await this.downloadRecord(record, request.signal)
+              const bytes = await runRemoteDownload(() =>
+                this.downloadRecord(record, request.signal),
+              )
               const path = await stageValidatedAsset(
                 activeStagingDirectory,
                 `${String(index).padStart(6, '0')}-remote.asset`,
