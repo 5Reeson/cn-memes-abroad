@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import {
@@ -282,14 +282,28 @@ function toPreparedPackView(pack: PreparedPack): PreparedPackView {
 }
 
 async function chooseImportPaths(mode: ImportMode): Promise<string[]> {
-  if (mode !== 'files' && mode !== 'directory') throw new TypeError('Invalid import mode')
+  if (mode !== 'files' && mode !== 'directory' && mode !== 'files-or-directory') {
+    throw new TypeError('Invalid import mode')
+  }
+  const acceptsFiles = mode !== 'directory'
+  const acceptsDirectories = mode !== 'files'
   const defaultPath = (await importPreferences.getLastImportDirectory()) ?? app.getPath('downloads')
   const result = await dialog.showOpenDialog(mainWindow!, {
-    title: mode === 'files' ? '选择贴纸图片' : '选择包含贴纸图片的文件夹',
+    title:
+      mode === 'files-or-directory'
+        ? '选择贴纸图片或文件夹'
+        : mode === 'files'
+          ? '选择贴纸图片'
+          : '选择包含贴纸图片的文件夹',
     buttonLabel: '导入',
-    properties: mode === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'],
+    properties:
+      mode === 'files'
+        ? ['openFile', 'multiSelections']
+        : mode === 'directory'
+          ? ['openDirectory']
+          : ['openFile', 'openDirectory', 'multiSelections'],
     defaultPath,
-    ...(mode === 'files'
+    ...(acceptsFiles
       ? {
           filters: [
             { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
@@ -300,8 +314,10 @@ async function chooseImportPaths(mode: ImportMode): Promise<string[]> {
   })
   if (result.canceled || result.filePaths.length === 0) return []
 
-  const selectedDirectory =
-    mode === 'directory' ? result.filePaths[0]! : dirname(result.filePaths[0]!)
+  const firstPath = result.filePaths[0]!
+  const firstPathIsDirectory =
+    acceptsDirectories && (await stat(firstPath).then((details) => details.isDirectory()))
+  const selectedDirectory = firstPathIsDirectory ? firstPath : dirname(firstPath)
   await importPreferences.setLastImportDirectory(selectedDirectory)
   return result.filePaths
 }
@@ -546,7 +562,12 @@ function installIpcHandlers(): void {
             { collection, collectionDirectory, inputs },
             {
               sourceKind: 'local',
-              sourceLabel: mode === 'files' ? '本机文件' : '本机文件夹',
+              sourceLabel:
+                mode === 'files'
+                  ? '本机文件'
+                  : mode === 'directory'
+                    ? '本机文件夹'
+                    : '本机文件或文件夹',
             },
             (progress) => event.sender.send(IPC_CHANNELS.importProgress, progress),
           )

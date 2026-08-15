@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { DeviceMobileIcon as DeviceMobile } from '@phosphor-icons/react/DeviceMobile'
 import { SignOutIcon as SignOut } from '@phosphor-icons/react/SignOut'
 import { WhatsappLogoIcon as WhatsappLogo } from '@phosphor-icons/react/WhatsappLogo'
+import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type {
   WhatsAppConnectionPhase,
@@ -29,10 +30,12 @@ export function WhatsAppConnectionPanel({
   compact = false,
   onStatus,
   onError,
+  onClose,
 }: {
   compact?: boolean
   onStatus?(status: WhatsAppConnectionView): void
   onError(message: string): void
+  onClose?(): void
 }) {
   const [connection, setConnection] = useState(initialConnection)
   const [busy, setBusy] = useState(false)
@@ -129,9 +132,21 @@ export function WhatsAppConnectionPanel({
           <h3>WhatsApp</h3>
           <p>{connection.message ?? '连接状态和凭证只保存在本机。'}</p>
         </div>
-        <span className={`semantic-status ${connection.phase}`}>
-          {connectionLabel(connection.phase)}
-        </span>
+        <div className="connection-panel-header-actions">
+          <span className={`semantic-status ${connection.phase}`}>
+            {connectionLabel(connection.phase)}
+          </span>
+          {onClose && (
+            <button
+              className="panel-close"
+              type="button"
+              aria-label="关闭 WhatsApp 连接面板"
+              onClick={onClose}
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
       </header>
 
       {!connected && (

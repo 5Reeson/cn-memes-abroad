@@ -14,6 +14,7 @@ import { CheckIcon as Check } from '@phosphor-icons/react/Check'
 import { CopySimpleIcon as CopySimple } from '@phosphor-icons/react/CopySimple'
 import { MagnifyingGlassIcon as Search } from '@phosphor-icons/react/MagnifyingGlass'
 import { SquareIcon as Square } from '@phosphor-icons/react/Square'
+import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
 import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type { CollectionView, StickerSourceKind } from '../../../shared/domain.js'
@@ -66,7 +67,7 @@ export interface StickerPickerProps {
   mode: 'library' | 'export'
   onSelection(ids: string[]): void
   onOrder(ids: string[]): void
-  onDelete?(ids: string[]): void
+  onDelete?(ids: string[]): void | Promise<void>
 }
 
 function sourceKey(asset: Asset): string[] {
@@ -89,6 +90,7 @@ export function StickerPicker({
   const [query, setQuery] = useState('')
   const [media, setMedia] = useState<'all' | 'static' | 'animated'>('all')
   const [source, setSource] = useState('all')
+  const [sort, setSort] = useState<'user-order' | 'reverse-order'>('user-order')
   const [preview, setPreview] = useState<Asset | null>(null)
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
   const gridRef = useRef<HTMLDivElement>(null)
@@ -134,7 +136,7 @@ export function StickerPicker({
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('zh-Hans-CN')
     const orderIndex = new Map(baseOrder.map((id, index) => [id, index]))
-    return assets
+    const filtered = assets
       .filter(
         (asset) =>
           !normalizedQuery ||
@@ -142,13 +144,14 @@ export function StickerPicker({
       )
       .filter((asset) => media === 'all' || asset.animated === (media === 'animated'))
       .filter((asset) => source === 'all' || sourceKey(asset).includes(source))
-      .sort(
-        (left, right) =>
-          (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-          (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-      )
-  }, [assets, baseOrder, media, query, source])
-  const filterKey = `${query}\u0000${media}\u0000${source}\u0000${assets.length}`
+    return filtered.sort((left, right) => {
+      const difference =
+        (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+      return sort === 'reverse-order' ? -difference : difference
+    })
+  }, [assets, baseOrder, media, query, sort, source])
+  const filterKey = `${query}\u0000${media}\u0000${source}\u0000${sort}\u0000${assets.length}`
   const progressive = useProgressiveCount({
     total: visible.length,
     initialCount: INITIAL_TILE_COUNT,
@@ -183,6 +186,10 @@ export function StickerPicker({
     window.addEventListener('keydown', closePreview)
     return () => window.removeEventListener('keydown', closePreview)
   }, [preview])
+
+  useEffect(() => {
+    if (preview && !assets.some((asset) => asset.id === preview.id)) setPreview(null)
+  }, [assets, preview])
 
   function toggle(id: string) {
     if (selected.has(id)) {
@@ -219,6 +226,11 @@ export function StickerPicker({
     } catch {
       setCopyStatus('failed')
     }
+  }
+
+  async function deletePreviewAsset() {
+    if (!preview || !onDelete) return
+    await onDelete([preview.id])
   }
 
   function dragEnd(event: DragEndEvent) {
@@ -477,6 +489,7 @@ export function StickerPicker({
           />
         </label>
         <SourceFilter value={source} options={sourceOptions} onChange={setSource} />
+        <SortFilter value={sort} onChange={setSort} />
       </div>
       <div className="picker-selection-bar">
         <span>
@@ -490,7 +503,7 @@ export function StickerPicker({
               selectMany(visible.map((asset) => asset.id))
             }}
           >
-            选择当前结果
+            全选当前结果
           </button>
           <button
             type="button"
@@ -499,7 +512,7 @@ export function StickerPicker({
               if (mode === 'export') onOrder([])
             }}
           >
-            清空选择
+            取消选择
           </button>
           {mode === 'library' && onDelete && (
             <button
@@ -549,7 +562,9 @@ export function StickerPicker({
                   index={selectedOrder.get(asset.id) ?? -1}
                   onToggle={() => toggle(asset.id)}
                   onPreview={() => setPreview(asset)}
-                  dragEnabled={mode === 'library' || selected.has(asset.id)}
+                  dragEnabled={
+                    sort === 'user-order' && (mode === 'library' || selected.has(asset.id))
+                  }
                 />
               ))}
             </div>
@@ -587,31 +602,64 @@ export function StickerPicker({
             </button>
             <ProgressiveImage src={preview.previewUrl} alt={preview.displayName} eager />
             <strong>{preview.displayName}</strong>
-            <div className="preview-meta">
-              <span>
-                {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
-              </span>
-              <button
-                type="button"
-                disabled={copyStatus === 'copying'}
-                aria-live="polite"
-                title={preview.animated ? '复制动图首帧' : '复制图片'}
-                onClick={() => void copyPreviewImage()}
-              >
-                {copyStatus === 'copied' ? <Check size={13} /> : <CopySimple size={13} />}
-                {copyStatus === 'copying'
-                  ? '复制中'
-                  : copyStatus === 'copied'
-                    ? '已复制'
-                    : copyStatus === 'failed'
-                      ? '重试复制'
-                      : '复制'}
-              </button>
+            <div className="preview-footer">
+              <div className="preview-meta">
+                <span>
+                  {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
+                </span>
+                <button
+                  type="button"
+                  disabled={copyStatus === 'copying'}
+                  aria-live="polite"
+                  title={preview.animated ? '复制动图首帧' : '复制图片'}
+                  onClick={() => void copyPreviewImage()}
+                >
+                  {copyStatus === 'copied' ? <Check size={13} /> : <CopySimple size={13} />}
+                  {copyStatus === 'copying'
+                    ? '复制中'
+                    : copyStatus === 'copied'
+                      ? '已复制'
+                      : copyStatus === 'failed'
+                        ? '重试复制'
+                        : '复制'}
+                </button>
+              </div>
+              {onDelete && (
+                <button
+                  className="preview-delete"
+                  type="button"
+                  aria-label={`删除 ${preview.displayName}`}
+                  onClick={() => void deletePreviewAsset()}
+                >
+                  <Trash size={14} />
+                  删除
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
     </section>
+  )
+}
+
+function SortFilter({
+  value,
+  onChange,
+}: {
+  value: 'user-order' | 'reverse-order'
+  onChange(value: 'user-order' | 'reverse-order'): void
+}) {
+  return (
+    <MenuSelect
+      value={value}
+      options={[
+        { value: 'user-order', label: '当前排序' },
+        { value: 'reverse-order', label: '倒序排序' },
+      ]}
+      ariaLabel="排序表情"
+      onChange={onChange}
+    />
   )
 }
 

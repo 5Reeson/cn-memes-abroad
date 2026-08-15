@@ -4,10 +4,10 @@ import type { ExportTask } from '../../../shared/domain.js'
 import { PathDisplay } from './PathDisplay.js'
 
 const steps = [
-  { id: 1 as const, title: '选择表情', empty: '从微信、本机或表情库开始' },
+  { id: 1 as const, title: '选择素材来源', empty: '从微信、本机或表情库开始' },
   { id: 2 as const, title: '选择目的地', empty: '选择 App 或本地文件夹' },
-  { id: 3 as const, title: '挑选表情', empty: '筛选、选择并调整顺序' },
-  { id: 4 as const, title: '传输表情', empty: '检查分组并开始传输' },
+  { id: 3 as const, title: '挑选传输表情', empty: '筛选、选择并调整顺序' },
+  { id: 4 as const, title: '检查并传输', empty: '检查分组并开始传输' },
 ]
 
 export function WorkflowRail({

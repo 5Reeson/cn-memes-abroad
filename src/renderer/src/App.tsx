@@ -4,6 +4,7 @@ import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
+import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { LinkIcon as Link } from '@phosphor-icons/react/Link'
 import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
 import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
@@ -40,6 +41,8 @@ import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
 import { Wechat4Panel } from './Wechat4Panel.js'
 import { WechatLegacyPanel } from './WechatLegacyPanel.js'
+
+const EMPTY_LIBRARY_WARNING = '我的表情库目前为空。请先从微信或本地导入表情。'
 
 function draftFromTask(task: ExportTask): ExportTaskDraft {
   return {
@@ -176,6 +179,10 @@ export function App() {
   }
 
   function moveToStep(step: ExportTask['currentStep']) {
+    if (step > 1 && taskRef.current?.source?.kind === 'library' && !collection?.assets.length) {
+      window.alert(EMPTY_LIBRARY_WARNING)
+      return
+    }
     updateTask({ currentStep: step })
   }
 
@@ -435,6 +442,7 @@ export function App() {
         onSaveSnapshot={saveSnapshot}
         onTransferLocal={transferLocal}
         onDeleteSnapshot={deleteSnapshot}
+        onDeleteAssets={removeAssets}
         onOpenSnapshot={openSnapshot}
         onError={setError}
         onWhatsAppStatus={setWhatsApp}
@@ -562,6 +570,7 @@ interface ExportPageProps {
   onSaveSnapshot(forceDuplicate?: boolean): void
   onTransferLocal(): void
   onDeleteSnapshot(id: string): void
+  onDeleteAssets(ids: string[]): void | Promise<void>
   onOpenSnapshot(id: string): void
   onError(message: string): void
   onWhatsAppStatus(status: WhatsAppConnectionView): void
@@ -635,6 +644,7 @@ function WorkflowStepWithFooter({
 }
 
 function SourceStep(props: ExportPageProps) {
+  const versionInfoId = useId()
   const initialFocus = props.task.source?.kind.startsWith('wechat')
     ? 'wechat'
     : props.task.source?.kind === 'local'
@@ -655,7 +665,7 @@ function SourceStep(props: ExportPageProps) {
   return (
     <div className="workflow-workspace">
       <StepHeading
-        title="选择表情"
+        title="选择素材来源"
         description="选择这次传输的素材来源。新导入的内容会安全保存到我的表情库。"
       />
       <div className="choice-list">
@@ -674,19 +684,33 @@ function SourceStep(props: ExportPageProps) {
             <p>选择脱敏账号并导入收藏表情</p>
             <small>需要明确授权。不会修改原微信。</small>
           </div>
+          <div className="choice-version-info">
+            <button
+              className="choice-info-button"
+              type="button"
+              aria-label="查看新旧版微信区别"
+              aria-describedby={versionInfoId}
+            >
+              <Info size={17} />
+            </button>
+            <span id={versionInfoId} className="choice-info-tooltip" role="tooltip">
+              新版微信适用于微信 4.x，优先使用本机缓存；旧版微信适用于微信
+              3.x，从本机收藏数据库导入。
+            </span>
+          </div>
           <div className="choice-actions">
             <button
-              className="primary-button"
+              className="secondary-button"
               type="button"
               onClick={() => {
                 setFocusedSource('wechat')
                 props.onWechat4()
               }}
             >
-              选择微信
+              新版微信
             </button>
             <button
-              className="text-button"
+              className="secondary-button"
               type="button"
               onClick={() => {
                 setFocusedSource('wechat')
@@ -723,17 +747,9 @@ function SourceStep(props: ExportPageProps) {
               className="secondary-button"
               type="button"
               disabled={props.busy}
-              onClick={() => props.onLocalImport('files')}
+              onClick={() => props.onLocalImport('files-or-directory')}
             >
-              选择图片
-            </button>
-            <button
-              className="text-button"
-              type="button"
-              disabled={props.busy}
-              onClick={() => props.onLocalImport('directory')}
-            >
-              选择文件夹
+              选择文件
             </button>
           </div>
         </section>
@@ -743,6 +759,10 @@ function SourceStep(props: ExportPageProps) {
           onFocus={() => setFocusedSource('library')}
           onClick={() => {
             props.onDismissWechat()
+            if (!props.collection.assets.length) {
+              window.alert(EMPTY_LIBRARY_WARNING)
+              return
+            }
             props.onTask({ source: { kind: 'library', label: '我的表情库' }, currentStep: 2 })
           }}
         >
@@ -776,6 +796,18 @@ function SourceStep(props: ExportPageProps) {
 
 function DestinationStep(props: ExportPageProps) {
   const connected = props.whatsApp?.phase === 'connected'
+  const [focusedDestination, setFocusedDestination] = useState<'whatsapp' | 'local'>(
+    props.task.destination?.kind === 'local-folder' ? 'local' : 'whatsapp',
+  )
+  const [whatsAppPanelOpen, setWhatsAppPanelOpen] = useState(
+    props.task.destination?.kind === 'whatsapp' && !connected,
+  )
+
+  useEffect(() => {
+    if (props.task.destination?.kind === 'local-folder') setFocusedDestination('local')
+    if (props.task.destination?.kind === 'whatsapp') setFocusedDestination('whatsapp')
+  }, [props.task.destination?.kind])
+
   const selectedLocalPath =
     props.task.destination?.kind === 'local-folder' &&
     props.taskDirectory &&
@@ -793,7 +825,7 @@ function DestinationStep(props: ExportPageProps) {
   const destinationDetail = !destinationReady ? (
     '选择一个目的地后即可继续。'
   ) : props.task.destination?.kind === 'whatsapp' ? (
-    'WhatsApp 已连接，可以继续挑选表情。'
+    'WhatsApp 已连接，可以继续挑选传输表情。'
   ) : selectedLocalPath ? (
     <PathDisplay path={selectedLocalPath} prefix="将导出到 " />
   ) : (
@@ -813,9 +845,10 @@ function DestinationStep(props: ExportPageProps) {
       />
       <div className="choice-list">
         <section
-          className={`choice-row${props.task.destination?.kind === 'whatsapp' ? ' is-selected' : ''}`}
+          className={`choice-row${focusedDestination === 'whatsapp' ? ' is-selected' : ''}`}
           tabIndex={0}
           aria-label="选择 WhatsApp"
+          onFocus={() => setFocusedDestination('whatsapp')}
           onClick={(event) => {
             if (!(event.target as HTMLElement).closest('button')) event.currentTarget.focus()
           }}
@@ -832,30 +865,44 @@ function DestinationStep(props: ExportPageProps) {
             </p>
           </div>
           <button
-            className={connected ? 'primary-button' : 'secondary-button'}
+            className="secondary-button"
             type="button"
-            onClick={() => props.onTask({ destination: { kind: 'whatsapp' } })}
+            onClick={() => {
+              setFocusedDestination('whatsapp')
+              setWhatsAppPanelOpen(!connected)
+              props.onTask({ destination: { kind: 'whatsapp' } })
+            }}
           >
             {connected ? '选择' : '连接并选择'}
           </button>
         </section>
-        {!connected && props.task.destination?.kind === 'whatsapp' && (
+        {!connected && whatsAppPanelOpen && (
           <WhatsAppConnectionPanel
             compact
             onStatus={props.onWhatsAppStatus}
             onError={props.onError}
+            onClose={() => setWhatsAppPanelOpen(false)}
           />
         )}
-        <button
-          className={`choice-row choice-button${props.task.destination?.kind === 'local-folder' ? ' is-selected' : ''}`}
-          type="button"
-          onClick={props.onChooseLocalDestination}
+        <section
+          className={`choice-row destination-choice-row${focusedDestination === 'local' ? ' is-selected' : ''}`}
+          tabIndex={0}
+          aria-label="导出到本地文件夹"
+          onFocus={() => {
+            setFocusedDestination('local')
+            setWhatsAppPanelOpen(false)
+          }}
+          onClick={(event) => {
+            setFocusedDestination('local')
+            setWhatsAppPanelOpen(false)
+            if (!(event.target as HTMLElement).closest('button')) event.currentTarget.focus()
+          }}
         >
           <span className="destination-icon">
             <FolderOpen size={32} />
           </span>
-          <span>
-            <strong>导出到本地文件夹</strong>
+          <div>
+            <h3>导出到本地文件夹</h3>
             <small>
               {props.task.destination?.kind === 'local-folder' ? (
                 selectedLocalPath ? (
@@ -869,9 +916,19 @@ function DestinationStep(props: ExportPageProps) {
                 '尚未设置默认位置，点击选择本次导出位置'
               )}
             </small>
-          </span>
-          <ArrowRight size={20} />
-        </button>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              setFocusedDestination('local')
+              setWhatsAppPanelOpen(false)
+              props.onChooseLocalDestination()
+            }}
+          >
+            选择文件夹
+          </button>
+        </section>
         <section className="choice-row is-disabled">
           <span className="destination-icon">
             <Link size={30} />
@@ -911,7 +968,7 @@ function PickerStep(props: ExportPageProps) {
       onAction={() => props.onStep(4)}
     >
       <StepHeading
-        title="挑选表情"
+        title="挑选传输表情"
         description={`我的表情库共有 ${props.collection.assets.length} 张素材。本次选择不会改变素材库的管理选择或全局顺序。`}
         aside={
           <strong className="heading-count">已选择 {props.task.selectedAssetIds.length} 张</strong>
@@ -924,6 +981,7 @@ function PickerStep(props: ExportPageProps) {
         mode="export"
         onSelection={(ids) => props.onTask({ selectedAssetIds: ids })}
         onOrder={(ids) => props.onTask({ orderedAssetIds: ids })}
+        onDelete={props.onDeleteAssets}
       />
     </WorkflowStepWithFooter>
   )
@@ -943,7 +1001,7 @@ function TransferStep(props: ExportPageProps) {
   return (
     <div className="workflow-workspace transfer-workspace">
       <StepHeading
-        title="传输表情"
+        title="检查并传输"
         description={
           whatsAppDestination
             ? 'WhatsApp 要求静态与动图分开传输。检查配置与分包后再确认发送。'

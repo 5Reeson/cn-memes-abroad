@@ -245,7 +245,7 @@ export interface ImportResult {
   failures: ImportFailure[]
 }
 
-export type ImportMode = 'files' | 'directory'
+export type ImportMode = 'files' | 'directory' | 'files-or-directory'
 
 export interface ImportSummary {
   canceled: boolean
