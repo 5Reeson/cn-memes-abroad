@@ -1195,21 +1195,6 @@ function TransferStep(props: ExportPageProps) {
                             ? '静态表情'
                             : '混合素材'}
                       </span>
-                      <small
-                        className={`prepared-group-status ${
-                          group.status === 'failed'
-                            ? 'is-failed'
-                            : whatsAppDestination && !selected
-                              ? 'is-excluded'
-                              : 'is-ready'
-                        }`}
-                      >
-                        {group.status === 'failed'
-                          ? '准备失败'
-                          : whatsAppDestination && !selected
-                            ? '本次不传输'
-                            : '待传输'}
-                      </small>
                     </span>
                     <span className="prepared-thumbs">
                       {group.items.slice(0, 6).map((item) => (
@@ -1217,6 +1202,23 @@ function TransferStep(props: ExportPageProps) {
                       ))}
                     </span>
                   </button>
+                  <small
+                    className={`prepared-group-status ${
+                      group.status === 'failed'
+                        ? 'is-failed'
+                        : whatsAppDestination && !selected
+                          ? 'is-excluded'
+                          : 'is-ready'
+                    }`}
+                  >
+                    {group.status === 'failed'
+                      ? '准备失败'
+                      : whatsAppDestination
+                        ? selected
+                          ? '未传输'
+                          : '不传输'
+                        : '未导出'}
+                  </small>
                 </article>
               )
             })}

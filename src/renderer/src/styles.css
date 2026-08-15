@@ -3132,7 +3132,7 @@ button:disabled {
 
 .prepared-groups article {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 80px;
@@ -3147,7 +3147,7 @@ button:disabled {
 }
 
 .prepared-groups article.is-selectable {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .prepared-groups article.is-excluded {
@@ -3175,9 +3175,9 @@ button:disabled {
 
 .prepared-group-open {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
+  grid-template-columns: 132px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -3203,7 +3203,9 @@ button:disabled {
 }
 
 .prepared-group-status {
-  margin-top: 1px;
+  min-width: 42px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .prepared-group-status.is-ready {
