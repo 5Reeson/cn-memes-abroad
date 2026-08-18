@@ -14,6 +14,7 @@
   --accent: #2865d8;
   --accent-hover: #1f55ba;
   --accent-soft: #e8effc;
+  --accent-border: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
   --danger: #b5403e;
   --danger-soft: #faeceb;
   --shadow: 0 18px 44px rgb(43 43 39 / 0.08);
@@ -253,13 +254,13 @@ button:active:not(:disabled) {
 }
 
 .primary-button {
-  border: 1px solid #242422;
-  color: #f5f5f1;
-  background: #242422;
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .primary-button:hover:not(:disabled) {
-  background: #393936;
-  border-color: #393936;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-raised));
 }
 .secondary-button {
   border: 1px solid var(--line-strong);
@@ -2044,9 +2045,9 @@ button:disabled {
 }
 
 .is-current .workflow-step-number {
-  border-color: #252523;
-  color: #f5f5f1;
-  background: #252523;
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .is-complete .workflow-step-number {
@@ -2775,8 +2776,8 @@ button:disabled {
 }
 
 .picker-tile.is-selected {
-  border-color: var(--text);
-  box-shadow: inset 0 0 0 1px var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .picker-tile.is-dragging {
@@ -2879,7 +2880,7 @@ button:disabled {
   height: 100%;
   border-radius: inherit;
   color: #fff;
-  background: #242422;
+  background: var(--accent);
   font-size: 9px;
   place-items: center;
 }
@@ -3174,7 +3175,7 @@ button:disabled {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: #242422;
+  accent-color: var(--accent);
 }
 
 .prepared-group-open {
@@ -3425,7 +3426,7 @@ button:disabled {
 }
 
 .snapshot-choice input {
-  accent-color: #242422;
+  accent-color: var(--accent);
 }
 
 .snapshot-choice span {
@@ -3881,11 +3882,13 @@ button:focus-visible .path-display[data-tooltip-placement='right'] .path-display
 }
 
 @media (prefers-color-scheme: dark) {
-  .product-brand > span,
-  .is-current .workflow-step-number,
-  .picker-select span {
+  .product-brand > span {
     color: #1d1d1b;
     background: #ecece7;
+  }
+
+  .picker-select span {
+    color: #1d1d1b;
   }
 
   .preparation-failures {
