@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
+import { EyeIcon as Eye } from '@phosphor-icons/react/Eye'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
 import { InfoIcon as Info } from '@phosphor-icons/react/Info'
@@ -164,7 +165,8 @@ export function App() {
     const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
     taskRef.current = next
     setTask(next)
-    setPrepared(null)
+    // 切换步骤不会使准备结果失效；其它修改（选择、配置、来源、目的地）才需要重新准备。
+    if (Object.keys(patch).some((field) => field !== 'currentStep')) setPrepared(null)
     saveQueue.current = saveQueue.current
       .then(async () => {
         const latest = taskRef.current
@@ -1034,6 +1036,7 @@ function TransferStep(props: ExportPageProps) {
             : '确认输出格式、命名规则和文件夹分组，再开始本地导出。'
         }
       />
+      {whatsAppDestination && <PackRulesNotice />}
       {whatsAppDestination ? (
         <div className="transfer-fields">
           <label>
@@ -1136,9 +1139,6 @@ function TransferStep(props: ExportPageProps) {
           />
         )}
         {prepared && whatsAppDestination && (
-          <PackRulesNotice key={`rules-${prepared.fingerprint}`} />
-        )}
-        {prepared && whatsAppDestination && (
           <div className="prepared-selection-bar">
             <span>
               已选择 {selectedPackIds.length} / {sendablePackIds.length} 个可发送表情包
@@ -1203,7 +1203,7 @@ function TransferStep(props: ExportPageProps) {
                       </span>
                     </span>
                     <span className="prepared-thumbs">
-                      {group.items.slice(0, 6).map((item) => (
+                      {group.items.slice(0, 12).map((item) => (
                         <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
                       ))}
                     </span>
@@ -1229,9 +1229,10 @@ function TransferStep(props: ExportPageProps) {
                     <button
                       className="prepared-group-preview"
                       type="button"
+                      aria-label={`预览 ${group.name}`}
                       onClick={() => setPreviewGroupId(group.id)}
                     >
-                      预览
+                      <Eye size={15} />
                     </button>
                   </span>
                 </article>
