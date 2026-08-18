@@ -1130,9 +1130,14 @@ function TransferStep(props: ExportPageProps) {
           </p>
         ))}
         {prepared && prepared.assetFailures.length > 0 && (
-          <PreparationFailurePanel key={prepared.fingerprint} failures={prepared.assetFailures} />
+          <PreparationFailurePanel
+            key={`failures-${prepared.fingerprint}`}
+            failures={prepared.assetFailures}
+          />
         )}
-        {prepared && whatsAppDestination && <PackRulesNotice key={prepared.fingerprint} />}
+        {prepared && whatsAppDestination && (
+          <PackRulesNotice key={`rules-${prepared.fingerprint}`} />
+        )}
         {prepared && whatsAppDestination && (
           <div className="prepared-selection-bar">
             <span>
