@@ -485,7 +485,7 @@ export function StickerPicker({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索表情"
+            placeholder="搜索表情名称"
           />
         </label>
         <SourceFilter value={source} options={sourceOptions} onChange={setSource} />

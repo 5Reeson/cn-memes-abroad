@@ -98,8 +98,8 @@ export class WhatsAppManager {
       hasSession: false,
       message:
         mode === 'keychain'
-          ? '将使用 macOS 钥匙串保护 WhatsApp session。'
-          : '将使用权限受限的本地明文文件保存 WhatsApp session。',
+          ? '将使用 macOS 钥匙串保护登录凭证，安全性较高'
+          : '将使用本地明文文件保存登录凭证，可避免授权，但安全性可能较低',
     })
     return this.view
   }

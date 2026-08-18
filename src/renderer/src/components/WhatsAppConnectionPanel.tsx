@@ -130,7 +130,10 @@ export function WhatsAppConnectionPanel({
         </span>
         <div>
           <h3>WhatsApp</h3>
-          <p>{connection.message ?? '连接状态和凭证只保存在本机。'}</p>
+          <p>
+            {connection.message ??
+              '登录状态和登录凭证将被保存在本地，供未来重复使用、减少重复扫码登录'}
+          </p>
         </div>
         <div className="connection-panel-header-actions">
           <span className={`semantic-status ${connection.phase}`}>
@@ -155,7 +158,7 @@ export function WhatsAppConnectionPanel({
             className="credential-options"
             disabled={!connection.canChangeCredentialMode || busy}
           >
-            <legend>凭证存储方式</legend>
+            <legend>登录凭证存储方式</legend>
             <label className={connection.credentialMode === 'keychain' ? 'is-selected' : ''}>
               <input
                 type="radio"
@@ -163,8 +166,8 @@ export function WhatsAppConnectionPanel({
                 onChange={() => void changeCredentialMode('keychain')}
               />
               <span>
-                <strong>macOS 钥匙串保护</strong>
-                <small>默认推荐，使用系统安全存储。</small>
+                <strong>使用 macOS 钥匙串保护</strong>
+                <small>默认推荐，使用系统安全存储</small>
               </span>
             </label>
             <label className={connection.credentialMode === 'plaintext' ? 'is-selected' : ''}>
@@ -174,13 +177,17 @@ export function WhatsAppConnectionPanel({
                 onChange={() => void changeCredentialMode('plaintext')}
               />
               <span>
-                <strong>本地明文文件</strong>
-                <small>安全性较低，目录 0700、文件 0600。</small>
+                <strong>本地明文文件存储</strong>
+                <small>可避免授权，但安全性可能较低</small>
               </span>
             </label>
           </fieldset>
           {!connection.canChangeCredentialMode && (
-            <p className="inline-note">已有 session 时不能切换存储方式，请先登出。</p>
+            <p className="inline-note">
+              {connection.hasSession
+                ? '如需切换存储方式，请先登出并清除登录凭证。'
+                : '连接流程进行中，请先取消连接，再切换存储方式。'}
+            </p>
           )}
         </>
       )}
@@ -190,7 +197,11 @@ export function WhatsAppConnectionPanel({
           <img src={connection.qrDataUrl} alt="WhatsApp 登录二维码" />
           <div>
             <strong>请用手机扫描二维码</strong>
-            <p>WhatsApp 设置 → 已关联设备 → 关联设备。</p>
+            <p>点击 WhatsApp 右下角「自己」→ 右上角二维码图标 → 扫描</p>
+            <p>
+              如果扫描失败，请点击本应用下方的「取消连接」按钮，重新开始连接流程，或杀掉手机端
+              WhatsApp 进程、重新进入应用，多试几次
+            </p>
           </div>
         </div>
       )}
@@ -252,13 +263,13 @@ export function WhatsAppConnectionPanel({
         )}
         {connected && (
           <button className="secondary-button" type="button" onClick={() => void disconnect()}>
-            断开连接
+            断开本次连接
           </button>
         )}
         {(connection.hasSession || connection.phase === 'error') && !awaiting && (
           <button className="text-button danger-text" type="button" onClick={() => void logout()}>
             <SignOut size={14} />
-            登出并删除 session
+            登出并清除登录凭证
           </button>
         )}
       </footer>

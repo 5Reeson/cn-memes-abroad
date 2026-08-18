@@ -666,7 +666,7 @@ function SourceStep(props: ExportPageProps) {
     <div className="workflow-workspace">
       <StepHeading
         title="选择素材来源"
-        description="选择这次传输的素材来源。新导入的内容会安全保存到我的表情库。"
+        description="选择这次传输的素材来源。新导入的内容会被安全保存到「我的表情库」"
       />
       <div className="choice-list">
         <section
@@ -681,8 +681,8 @@ function SourceStep(props: ExportPageProps) {
           </span>
           <div>
             <h3>从微信导入</h3>
-            <p>选择脱敏账号并导入收藏表情</p>
-            <small>需要明确授权。不会修改原微信。</small>
+            <p>选择一个微信账号，导入收藏的表情</p>
+            <small>微信账号已加密，任何微信数据都不会被修改或上传</small>
           </div>
           <div className="choice-version-info">
             <button
@@ -694,8 +694,8 @@ function SourceStep(props: ExportPageProps) {
               <Info size={17} />
             </button>
             <span id={versionInfoId} className="choice-info-tooltip" role="tooltip">
-              新版微信适用于微信 4.x，优先使用本机缓存；旧版微信适用于微信
-              3.x，从本机收藏数据库导入。
+              新版微信指微信 4.x 系列版本，首次使用时需要您关闭微信
+              app，在微信重新启动后完成扫码登录；旧版微信无需此流程。
             </span>
           </div>
           <div className="choice-actions">
@@ -740,7 +740,8 @@ function SourceStep(props: ExportPageProps) {
           </span>
           <div>
             <h3>从本机导入</h3>
-            <p>选择单张、多张图片或整个文件夹</p>
+            <p>支持选择单张、多张图片或整个文件夹</p>
+            <small>支持的格式: PNG, JPG, JPEG, WebP, GIF</small>
           </div>
           <div className="choice-actions">
             <button
@@ -788,7 +789,7 @@ function SourceStep(props: ExportPageProps) {
       )}
       <p className="privacy-line">
         <ShieldCheck size={17} />
-        仅在你确认后读取本机微信数据。所有图片与数据库都在本机处理。
+        安全承诺 - 所有图片与数据均在本地处理、不会被上传到网络
       </p>
     </div>
   )
@@ -939,7 +940,7 @@ function DestinationStep(props: ExportPageProps) {
           </span>
           <div>
             <h3>更多 App 即将支持</h3>
-            <p>目前可先导出到本地文件夹，再手动添加。</p>
+            <small>目前可先导出到本地文件夹，由您手动添加。</small>
           </div>
         </section>
       </div>
@@ -973,7 +974,7 @@ function PickerStep(props: ExportPageProps) {
     >
       <StepHeading
         title="挑选传输表情"
-        description={`我的表情库共有 ${props.collection.assets.length} 张素材。本次选择不会改变素材库的管理选择或全局顺序。`}
+        description={`我的表情库共有 ${props.collection.assets.length} 张素材。此处选择的表情会在下一步被传输，选择的序号将影响传输时的先后顺序。`}
         aside={
           <strong className="heading-count">已选择 {props.task.selectedAssetIds.length} 张</strong>
         }
@@ -1202,23 +1203,32 @@ function TransferStep(props: ExportPageProps) {
                       ))}
                     </span>
                   </button>
-                  <small
-                    className={`prepared-group-status ${
-                      group.status === 'failed'
-                        ? 'is-failed'
-                        : whatsAppDestination && !selected
-                          ? 'is-excluded'
-                          : 'is-ready'
-                    }`}
-                  >
-                    {group.status === 'failed'
-                      ? '准备失败'
-                      : whatsAppDestination
-                        ? selected
-                          ? '未传输'
-                          : '不传输'
-                        : '未导出'}
-                  </small>
+                  <span className="prepared-group-side">
+                    <small
+                      className={`prepared-group-status ${
+                        group.status === 'failed'
+                          ? 'is-failed'
+                          : whatsAppDestination && !selected
+                            ? 'is-excluded'
+                            : 'is-ready'
+                      }`}
+                    >
+                      {group.status === 'failed'
+                        ? '准备失败'
+                        : whatsAppDestination
+                          ? selected
+                            ? '未传输'
+                            : '不传输'
+                          : '未导出'}
+                    </small>
+                    <button
+                      className="prepared-group-preview"
+                      type="button"
+                      onClick={() => setPreviewGroupId(group.id)}
+                    >
+                      预览
+                    </button>
+                  </span>
                 </article>
               )
             })}
@@ -1603,7 +1613,7 @@ function LibraryPage({
     <div className="page-workspace">
       <StepHeading
         title="我的表情库"
-        description="本机已管理素材的浏览与管理入口。筛选不会改变全局顺序或来源归属。"
+        description="浏览、管理所有已经导入本应用的表情包素材。单击可查看文件名、预览、复制、删除。支持框选及拖拽排序。"
         aside={
           <div className="heading-actions">
             <button className="secondary-button" type="button" onClick={onWechat4}>
@@ -1751,11 +1761,10 @@ function SettingsPage({
           <div className="settings-row">
             <span>
               <strong>本地优先</strong>
-              <small>素材库、准备缓存、已保存结果与连接状态只保存在这台 Mac。</small>
+              <small>素材库只保存在这台 Mac，数据处理均在本地进行</small>
             </span>
             <span className="settings-status">
               <ShieldCheck size={17} />
-              已启用
             </span>
           </div>
         </div>
@@ -1774,29 +1783,30 @@ function AboutPage() {
       <section>
         <h3>微信数据怎么读取？</h3>
         <p>
-          应用只在你明确授权后读取微信表情相关数据。必要时会创建隔离的临时副本并请你扫码，不会修改原
-          WeChat.app。你可以通过退出临时副本和系统权限设置撤销访问。
+          本应用只在你明确授权后读取微信表情相关数据。在从新版微信 (4.0 及以上版本)
+          时会创建临时的隔离微信环境并请你扫码登录，此过程不会修改任何微信数据。你可以随时退出临时环境，或通过系统权限设置撤销访问。
         </p>
       </section>
       <section>
-        <h3>数据会上传吗？</h3>
+        <h3>数据会被上传吗？</h3>
         <p>
-          本机图片与数据库在本地处理。微信 key 只用于当前解密验证，WhatsApp session
-          只用于你主动发起的连接与传输，不进入日志或 renderer state。
+          本机图片与数据库在本地处理。只有当需要将「我的表情包」内的素材导入到其他 App, 如 WhatsApp
+          时，才会将数据向互联网传输。任何您的个人数据、表情包素材，都不会被我们上传到服务器或记录在日志中。
         </p>
       </section>
       <section>
         <h3>WhatsApp 凭证如何保存？</h3>
         <p>
-          默认使用 macOS 钥匙串保护。也可选择权限受限的本地明文文件，目录为 0700、文件为
-          0600。切换模式前必须先登出。
+          默认存储在 macOS 钥匙串中，由 macOS
+          进行保护。您也可选择保存到本地明文文件中来避免可能的系统授权，但安全性可能因此降低。
         </p>
       </section>
       <section>
         <h3>独立项目与公开审查</h3>
         <p>
-          本项目不是腾讯或 Meta 官方产品。源码、构建配置和依赖可公开审查。Phase 9
-          还会进行许可证、安全、隐私和发布审查。
+          本项目不是腾讯或 Meta / WhatsApp
+          官方产品，仅供个人学习交流使用。任何在使用本应用中过程中可能产生的潜在问题，如封
+          IP、封号等，本项目及其开发者概不负责。本项目源码开源、构建配置和依赖可公开审查。
         </p>
       </section>
     </div>

@@ -252,7 +252,7 @@ export function WhatsAppSendPanel({
         <div>
           <p className="section-label">最后一步</p>
           <h2 id="whatsapp-panel-title">发送到 WhatsApp</h2>
-          <p>默认只发给你自己。只有你主动读取后，应用才会加载群聊。</p>
+          <p>默认发给你自己。只有你主动点击按钮后，才会加载更多可用的 WhatsApp 群聊。</p>
         </div>
         <span className={`connection-pill ${connection.phase}`}>
           <span /> {connectionLabel(connection.phase)}
@@ -308,7 +308,11 @@ export function WhatsAppSendPanel({
               </span>
             </label>
             {!connection.canChangeCredentialMode && (
-              <p>已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。</p>
+              <p>
+                {connection.hasSession
+                  ? '已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。'
+                  : '连接流程进行中；如需更改，请先取消连接。'}
+              </p>
             )}
           </fieldset>
 
@@ -400,7 +404,7 @@ export function WhatsAppSendPanel({
           <div className="target-picker-heading">
             <div>
               <strong>发送目标</strong>
-              <p>为保护隐私，群聊不会自动读取。</p>
+              <p>为保护隐私，不会自动读取 WhatsApp 联系人及群聊。</p>
             </div>
             <button
               className="secondary-button compact-button"
@@ -539,7 +543,7 @@ export function WhatsAppSendPanel({
           )}
 
           <div className="whatsapp-session-actions">
-            <span>非官方 WhatsApp 集成；协议变化可能导致暂时不可用。</span>
+            <span>免责声明：非官方 WhatsApp 集成；WhatsApp 版本更新可能导致此功能暂时不可用。</span>
             <div>
               <button
                 className="text-button"
@@ -547,7 +551,7 @@ export function WhatsAppSendPanel({
                 disabled={connectionBusy || sending}
                 onClick={disconnect}
               >
-                断开连接
+                断开本次连接
               </button>
               <button
                 className="text-button danger-text"
@@ -555,7 +559,7 @@ export function WhatsAppSendPanel({
                 disabled={connectionBusy || sending}
                 onClick={logout}
               >
-                <SignOut size={14} /> 退出并清除登录
+                <SignOut size={14} /> 登出并清除登录凭证
               </button>
             </div>
           </div>

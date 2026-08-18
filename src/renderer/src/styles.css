@@ -2643,6 +2643,10 @@ button:disabled {
   opacity: 0.72;
 }
 
+.picker-selection-bar button.danger-text {
+  color: var(--danger);
+}
+
 .picker-selection-bar button.danger-text:hover:not(:disabled) {
   color: color-mix(in srgb, var(--danger) 80%, var(--text));
 }
@@ -3202,6 +3206,25 @@ button:disabled {
   font-size: 10px;
 }
 
+.prepared-group-side {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.prepared-group-preview {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.prepared-group-preview:hover {
+  color: var(--accent);
+}
+
 .prepared-group-status {
   min-width: 42px;
   text-align: right;
@@ -3505,6 +3528,11 @@ button:disabled {
   font-size: 10px;
   font-weight: 650;
   white-space: nowrap;
+}
+
+.settings-row > .settings-status {
+  flex: 0 0 auto;
+  display: inline-flex;
 }
 
 .saved-results article,
