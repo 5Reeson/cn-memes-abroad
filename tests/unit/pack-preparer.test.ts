@@ -105,7 +105,7 @@ describe('PackPreparer', () => {
   async function zeroDelayGifAsset(index: number, frameCount = 40): Promise<StickerAsset> {
     const originalPath = join(temporaryDirectory, `source-${index}.gif`)
     const frameHeight = 8
-    let contents = await sharp({
+    const generatedContents = await sharp({
       create: {
         width: 8,
         height: frameHeight * frameCount,
@@ -125,7 +125,7 @@ describe('PackPreparer', () => {
       )
       .gif({ delay: Array(frameCount).fill(100), loop: 0, keepDuplicateFrames: true })
       .toBuffer()
-    contents = patchGifFrameDurations(contents, 0)
+    const contents = patchGifFrameDurations(generatedContents, 0)
     await writeFile(originalPath, contents)
     const metadata = await sharp(contents, { animated: true, pages: -1 }).metadata()
     return {

@@ -13,16 +13,35 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 - Phase 4：桌面端 WhatsApp QR/配对登录、加密 session、按需群聊选择和逐包发送。
 - Phase 5：arm64 DMG/ZIP 与 x64 Beta 实验构建已通过内部验证；当前产物尚未签名或公证。
 - Phase 6：微信 3.x `fav.archive` Legacy Beta 适配器已通过真实账号手工验收。
-- Phase 7：微信 4.x Gate A–G 已通过，两次真实 Gate G 中第二次由用户扫码后取得候选并通过
-  HMAC/schema/quick_check（`verified=true`，key 随即清零）。数据侧 adapter 已完成 synthetic
-  验证：收藏/自定义表联表、本地缓存优先、CDN/AES 回退、Keychain-backed 缓存和统一
-  library；显式授权 UI、主进程 Gate G 获取器、失效 key 重取和 universal helper 打包也已接通并
-  通过 synthetic/目录包验证。真实产品导入、CDN/AES 与 WhatsApp 全链路仍待手工验收。详见
-  `PHASE7_REPORT.md`。
+- Phase 7：微信 4.x Gate A–G 已完成。两个真实账号分别通过扫码取得候选并完成
+  HMAC/schema/quick_check；真实产品已验证本地缓存、CDN/AES 回退、账号隔离安全缓存、跨账号
+  去重和微信到 WhatsApp 的最小完整链路。详见 `PHASE7_REPORT.md`。
+- Phase 8：四步导出流程、独立素材库、共享挑选器、来源筛选、拖拽/框选、单图预览、分包预览、
+  WhatsApp 两种凭证模式和“关于与安全”页面已完成；正式发布前仍需使用最终候选包完成手工回归。
+
+## 系统要求
+
+- macOS 13 Ventura 或更高版本。
+- Apple Silicon 为主要支持架构；Intel 构建已在 2017 MacBook Pro + macOS Ventura 上完成真实流程验证，首发仍标记为 Beta。
+- 安装后的 App 已包含 Electron、Node.js 运行时和所需原生依赖，普通用户不需要另外安装 Node.js。
+- 当前实验包未使用 Developer ID 签名或 Apple 公证，仅供内部测试；公开下载前需明确提供 Gatekeeper 安装说明。
+
+### 打开未签名的内部测试包
+
+只从本项目的 GitHub Releases 或维护者直接提供的可信链接下载安装包。将 App 拖入“应用程序”后，
+先尝试打开一次；如果 macOS 阻止启动：
+
+1. 打开“系统设置” → “隐私与安全性”。
+2. 滚动到“安全性”，找到刚刚被阻止的 CN Memes Abroad。
+3. 点击“仍要打开”，在再次出现的确认框中选择“打开”。
+
+这个例外只针对当前 App。不要关闭系统 Gatekeeper，也不要执行来源不明、要求移除整个系统安全
+限制的脚本。如果系统提示 App 包已被修改、包含恶意内容或证书已撤销，请停止运行并重新核对下载
+来源与校验值。
 
 ## 本地开发
 
-要求 Node.js 20 或更高版本。
+源码开发要求 Node.js 20.9 或更高版本。
 
 ```bash
 npm install

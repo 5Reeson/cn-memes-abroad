@@ -1,6 +1,6 @@
 {
   "name": "cn-memes-abroad",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app for organizing Chinese stickers and sending them to WhatsApp",
@@ -33,7 +33,7 @@
     "postinstall": "patch-package"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",
@@ -47,7 +47,7 @@
     "qrcode-terminal": "0.12.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": "0.34.5"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -91,6 +91,7 @@
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,
+      "minimumSystemVersion": "13.0",
       "target": [
         "dmg",
         "zip"
