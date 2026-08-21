@@ -143,7 +143,10 @@ export class WhatsAppManager {
     return this.view
   }
 
-  private async openSocket(pairingPhone?: string): Promise<void> {
+  private async openSocket(
+    pairingPhone?: string,
+    browserMode: 'qr' | 'phone' = pairingPhone ? 'phone' : 'qr',
+  ): Promise<void> {
     const { state, saveCreds } = await this.authStore.load()
     const hasSession = hasPairedCredentials(state.creds)
     this.update({
@@ -152,9 +155,11 @@ export class WhatsAppManager {
       message: hasSession ? '正在复用已保存的 session…' : '正在建立连接…',
     })
 
+    const browser =
+      browserMode === 'phone' ? Browsers.macOS('Chrome') : Browsers.macOS('Desktop')
     const socket = makeWASocket({
       auth: state,
-      browser: Browsers.macOS('Desktop'),
+      browser,
       logger,
       markOnlineOnConnect: false,
       syncFullHistory: false,
@@ -207,7 +212,7 @@ export class WhatsAppManager {
               hasSession: true,
               message: '关联完成，正在复用新 session 重新连接…',
             })
-            await this.openSocket()
+            await this.openSocket(undefined, browserMode)
           } else if (code === DisconnectReason.loggedOut) {
             await this.authStore.clear()
             this.update({
@@ -233,6 +238,10 @@ export class WhatsAppManager {
     })
 
     if (pairingPhone && !hasSession) {
+      // requestPairingCode must be sent after the noise handshake completes,
+      // otherwise Baileys' sendRawMessage rejects with "Connection Closed".
+      // `qr` is only emitted once the transport is ready, so wait for it.
+      await socket.waitForConnectionUpdate(async (update) => update.qr !== undefined)
       const pairingCode = await socket.requestPairingCode(pairingPhone)
       this.update({ phase: 'awaiting-pairing-code', hasSession: false, pairingCode })
     }
