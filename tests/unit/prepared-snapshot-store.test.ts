@@ -105,6 +105,38 @@ describe('PreparedSnapshotStore', () => {
 
     await expect(store.get(saved.manifest.id)).rejects.toThrow(/checksum/)
   })
+
+  it('saves the successfully prepared subset when individual assets fail or warnings exist', async () => {
+    const root = await temporaryDirectory()
+    const sourcePath = join(root, 'source.png')
+    const contents = Buffer.from('subset payload')
+    await writeFile(sourcePath, contents)
+    const prepared = preparation(sourcePath, contents, fingerprint('partial'))
+    prepared.orderedAssetIds = ['asset-a', 'asset-broken']
+    prepared.warnings = ['分包余数已自动调整']
+    prepared.assetFailures = [{ assetId: 'asset-broken', message: '转换失败' }]
+    const store = new PreparedSnapshotStore({
+      rootDirectory: join(root, 'snapshots'),
+      createId: () => '55555555-5555-5555-5555-555555555555',
+    })
+
+    const saved = await store.save(prepared)
+    expect(saved.kind).toBe('saved')
+    expect(saved.manifest.orderedAssetIds).toEqual(['asset-a'])
+    expect((await store.get(saved.manifest.id)).orderedAssetIds).toEqual(['asset-a'])
+  })
+
+  it('rejects preparations that contain a failed group', async () => {
+    const root = await temporaryDirectory()
+    const sourcePath = join(root, 'source.png')
+    const contents = Buffer.from('failed group')
+    await writeFile(sourcePath, contents)
+    const prepared = preparation(sourcePath, contents, fingerprint('failed-group'))
+    prepared.groups[0]!.status = 'failed'
+    const store = new PreparedSnapshotStore({ rootDirectory: join(root, 'snapshots') })
+
+    await expect(store.save(prepared)).rejects.toThrow(/准备失败的分组/)
+  })
 })
 
 function preparation(
