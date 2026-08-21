@@ -338,7 +338,7 @@ export function App() {
   }
 
   async function deleteSnapshot(id: string) {
-    if (!window.confirm('删除这个已保存的传输结果？我的表情库素材不会删除。')) return
+    if (!window.confirm('删除这个表情分组存档？我的表情库素材不会删除。')) return
     try {
       await window.stickerApp?.deletePreparedSnapshot(id)
       setSnapshots((current) => current.filter((snapshot) => snapshot.id !== id))
@@ -351,6 +351,33 @@ export function App() {
     try {
       const snapshot = await window.stickerApp?.getPreparedSnapshot(id)
       if (snapshot) setSnapshotPreview(snapshot)
+    } catch (reason) {
+      showError(reason)
+    }
+  }
+
+  async function useSnapshot(id: string) {
+    try {
+      const result = await window.stickerApp?.usePreparedSnapshot(id)
+      if (!result) return
+      taskRef.current = result.task
+      setTask(result.task)
+      setPrepared(result.summary)
+      setSnapshotPreview(null)
+      setPage('export')
+      const whatsAppDestination = result.task.destination?.kind === 'whatsapp'
+      if (whatsAppDestination && whatsApp && whatsApp.phase !== 'connected') {
+        setNotice(
+          `已载入「${result.summary.name}」，其目的地是 WhatsApp。当前未连接，请在确认发送前先连接。`,
+        )
+      } else if (
+        result.task.destination?.kind === 'local-folder' &&
+        !result.task.destination.directoryId
+      ) {
+        setNotice(`已载入「${result.summary.name}」，请选择本地导出位置后确认导出。`)
+      } else {
+        setNotice(`已载入「${result.summary.name}」，可直接在第 4 步确认传输。`)
+      }
     } catch (reason) {
       showError(reason)
     }
@@ -380,9 +407,7 @@ export function App() {
   async function removeAssets(ids: string[]) {
     const api = window.stickerApp
     if (!api || !ids.length) return
-    if (
-      !window.confirm(`从我的表情库删除所选 ${ids.length} 张素材？已保存的传输结果仍保留独立副本。`)
-    )
+    if (!window.confirm(`从我的表情库删除所选 ${ids.length} 张素材？表情分组存档仍保留独立副本。`))
       return
     try {
       const next = await api.removeAssets(ids)
@@ -446,6 +471,7 @@ export function App() {
         onDeleteSnapshot={deleteSnapshot}
         onDeleteAssets={removeAssets}
         onOpenSnapshot={openSnapshot}
+        onUseSnapshot={useSnapshot}
         onError={setError}
         onWhatsAppStatus={setWhatsApp}
         onRefreshTask={() => {
@@ -472,6 +498,13 @@ export function App() {
             />
           ) : null
         }
+      />
+    ) : page === 'archives' ? (
+      <ArchivesPage
+        snapshots={snapshots}
+        onOpen={openSnapshot}
+        onUse={useSnapshot}
+        onDelete={deleteSnapshot}
       />
     ) : page === 'connections' ? (
       <ConnectionsPage
@@ -574,6 +607,7 @@ interface ExportPageProps {
   onDeleteSnapshot(id: string): void
   onDeleteAssets(ids: string[]): void | Promise<void>
   onOpenSnapshot(id: string): void
+  onUseSnapshot(id: string): void
   onError(message: string): void
   onWhatsAppStatus(status: WhatsAppConnectionView): void
   onRefreshTask(): void
@@ -1294,7 +1328,9 @@ function TransferStep(props: ExportPageProps) {
         <SavedResults
           snapshots={props.snapshots}
           onOpen={props.onOpenSnapshot}
+          onUse={props.onUseSnapshot}
           onDelete={props.onDeleteSnapshot}
+          limit={6}
         />
       )}
       {previewGroup && (
@@ -1509,17 +1545,22 @@ function LocalTransferFields({
 function SavedResults({
   snapshots,
   onOpen,
+  onUse,
   onDelete,
+  limit,
 }: {
   snapshots: PreparedSnapshotSummary[]
   onOpen(id: string): void
+  onUse(id: string): void
   onDelete(id: string): void
+  limit?: number
 }) {
+  const visible = limit === undefined ? snapshots : snapshots.slice(0, limit)
   return (
     <section className="saved-results">
-      <h3>已保存的传输结果</h3>
+      <h3>表情分组存档</h3>
       <div>
-        {snapshots.slice(0, 6).map((snapshot) => (
+        {visible.map((snapshot) => (
           <article key={snapshot.id}>
             <button className="saved-result-main" type="button" onClick={() => onOpen(snapshot.id)}>
               <strong>{snapshot.name}</strong>
@@ -1528,6 +1569,9 @@ function SavedResults({
                 {snapshot.groupCount} 组 ·{' '}
                 {snapshot.destination === 'whatsapp' ? 'WhatsApp' : '本地文件夹'}
               </small>
+            </button>
+            <button className="saved-result-use" type="button" onClick={() => onUse(snapshot.id)}>
+              使用
             </button>
             <button
               className="icon-button"
@@ -1594,6 +1638,36 @@ function SnapshotPreviewDialog({
           </button>
         </footer>
       </section>
+    </div>
+  )
+}
+
+function ArchivesPage({
+  snapshots,
+  onOpen,
+  onUse,
+  onDelete,
+}: {
+  snapshots: PreparedSnapshotSummary[]
+  onOpen(id: string): void
+  onUse(id: string): void
+  onDelete(id: string): void
+}) {
+  return (
+    <div className="page-workspace">
+      <header className="workspace-heading">
+        <div>
+          <h2>表情分组存档</h2>
+          <p>已保存的准备结果。点击「使用」即可载入原分组与配置，直接进入传输确认。</p>
+        </div>
+      </header>
+      {snapshots.length === 0 ? (
+        <p className="inline-note">
+          还没有存档。在导出流程第 4 步勾选「保留本次准备结果」即可保存。
+        </p>
+      ) : (
+        <SavedResults snapshots={snapshots} onOpen={onOpen} onUse={onUse} onDelete={onDelete} />
+      )}
     </div>
   )
 }

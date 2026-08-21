@@ -48,8 +48,11 @@ import type {
   ImportMode,
   ImportSummary,
   PackSettings,
+  PrepareExportSummary,
   PreparedPackView,
+  PreparedSnapshotView,
   StickerCollection,
+  UsePreparedSnapshotResult,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
   WechatDownloadMode,
@@ -231,6 +234,81 @@ function cancelExportPreparation(message = '已停止准备传输。'): boolean 
 
 async function waitForExportPreparation(): Promise<void> {
   await exportPreparationTask?.catch(() => undefined)
+}
+
+/**
+ * Rebuilds the renderer preview of a saved snapshot. Snapshots only persist the
+ * successfully prepared subset, so failures and warnings are empty.
+ */
+function snapshotToSummary(view: PreparedSnapshotView): PrepareExportSummary {
+  return {
+    fingerprint: view.contentFingerprint,
+    destination: view.destination,
+    name: view.name,
+    ...(view.publisher === undefined ? {} : { publisher: view.publisher }),
+    groups: view.groups.map((group) => ({ ...group, status: 'prepared' as const })),
+    warnings: [],
+    animationRepairs: view.groups.flatMap((group) =>
+      group.items
+        .filter((item) => item.animationTimingAdjusted)
+        .map((item) => ({ assetId: item.assetId, droppedFrameCount: item.droppedFrameCount ?? 0 })),
+    ),
+    assetFailures: [],
+  }
+}
+
+/**
+ * Loads a saved snapshot back into the export workflow as the current prepared
+ * result: source, destination, sticker selection and transfer configuration are
+ * all fixed by the snapshot, so the flow jumps straight to the final check step.
+ */
+async function usePreparedSnapshot(id: string): Promise<UsePreparedSnapshotResult> {
+  const manifest = await preparedSnapshotStore.get(id)
+  return enqueueMutation(async () => {
+    const current = await exportTaskStore.loadOrCreate()
+    const configuration = manifest.configuration
+    const task: ExportTask = {
+      ...current,
+      source: { kind: 'library', label: '我的表情库' },
+      destination:
+        configuration.kind === 'whatsapp'
+          ? { kind: 'whatsapp' }
+          : current.destination?.kind === 'local-folder'
+            ? current.destination
+            : { kind: 'local-folder' },
+      selectedAssetIds: [...manifest.orderedAssetIds],
+      orderedAssetIds: [...manifest.orderedAssetIds],
+      whatsapp:
+        configuration.kind === 'whatsapp'
+          ? {
+              title: configuration.title,
+              publisher: configuration.publisher,
+              packSize: configuration.packSize,
+            }
+          : current.whatsapp,
+      localFolder:
+        configuration.kind === 'local-folder'
+          ? {
+              batchName: configuration.batchName,
+              format: configuration.format,
+              naming: configuration.naming,
+              itemsPerFolder: configuration.itemsPerFolder,
+            }
+          : current.localFolder,
+      currentStep: 4,
+      prepared: {
+        fingerprint: manifest.contentFingerprint,
+        status: 'prepared',
+        snapshotId: manifest.id,
+        preparedAt: new Date().toISOString(),
+      },
+    }
+    const saved = await exportTaskStore.save(task)
+    return {
+      task: saved,
+      summary: snapshotToSummary(toPreparedSnapshotView(manifest, snapshotPreviewUrl)),
+    }
+  })
 }
 
 function assertStringArray(value: unknown, label: string): asserts value is string[] {
@@ -518,6 +596,15 @@ function installIpcHandlers(): void {
     if (typeof id !== 'string') throw new TypeError('Invalid snapshot ID')
     try {
       return toPreparedSnapshotView(await preparedSnapshotStore.get(id), snapshotPreviewUrl)
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.usePreparedSnapshot, async (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('Invalid snapshot ID')
+    try {
+      return await usePreparedSnapshot(id)
     } catch (error) {
       throw sanitizeError(error)
     }
@@ -942,7 +1029,7 @@ function installIpcHandlers(): void {
     }
   })
   ipcMain.handle(IPC_CHANNELS.whatsappLogout, async (_event, confirmed: unknown) => {
-    if (confirmed !== true) throw new Error('必须确认登出并清除 WhatsApp session')
+    if (confirmed !== true) throw new Error('必须确认登出并清除 WhatsApp 登录凭证')
     try {
       return await whatsappManager.logout()
     } catch (error) {

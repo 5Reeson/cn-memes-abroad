@@ -30,6 +30,7 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.savePreparedSnapshot, forceDuplicate),
   listPreparedSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.listPreparedSnapshots),
   getPreparedSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.getPreparedSnapshot, id),
+  usePreparedSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.usePreparedSnapshot, id),
   deletePreparedSnapshot: (id: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.deletePreparedSnapshot, id),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),

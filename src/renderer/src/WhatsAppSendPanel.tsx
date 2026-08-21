@@ -187,7 +187,7 @@ export function WhatsAppSendPanel({
     if (
       !api ||
       !window.confirm(
-        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和已保存的传输结果不会删除。',
+        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和表情分组存档不会删除。',
       )
     )
       return
@@ -377,7 +377,7 @@ export function WhatsAppSendPanel({
                 onClick={() => connect()}
               >
                 <DeviceMobile size={16} />
-                {connection.hasSession ? '连接 WhatsApp' : '显示二维码'}
+                {connection.hasSession ? '恢复连接' : '显示二维码'}
               </button>
             )}
             {!connection.hasSession && !pairingMode && connection.phase !== 'awaiting-qr' && (
@@ -392,7 +392,7 @@ export function WhatsAppSendPanel({
             )}
             {!awaitingLogin && (connection.hasSession || connection.phase === 'error') && (
               <button className="text-button danger-text" type="button" onClick={logout}>
-                清除本地登录
+                登出并清除登录凭证
               </button>
             )}
           </div>

@@ -223,6 +223,12 @@ export type SavePreparedSnapshotResult =
   | { kind: 'saved'; snapshot: PreparedSnapshotView }
   | { kind: 'duplicate'; snapshot: PreparedSnapshotView }
 
+/** Loading a saved snapshot back into the export workflow as the current prepared result. */
+export interface UsePreparedSnapshotResult {
+  task: ExportTask
+  summary: PrepareExportSummary
+}
+
 export interface ImportFailure {
   path: string
   reason: string

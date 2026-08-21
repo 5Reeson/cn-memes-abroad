@@ -103,7 +103,7 @@ export function WhatsAppConnectionPanel({
     if (
       !api ||
       !window.confirm(
-        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和已保存的传输结果不会删除。',
+        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和表情分组存档不会删除。',
       )
     )
       return

@@ -3658,6 +3658,31 @@ button:focus-visible .path-display[data-tooltip-placement='right'] .path-display
   text-align: left;
 }
 
+.saved-result-use {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.saved-result-use:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  color: var(--accent);
+}
+
 .snapshot-preview-dialog {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;

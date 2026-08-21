@@ -19,6 +19,7 @@ import type {
   SavePreparedSnapshotResult,
   SendPackProgress,
   SendPacksSummary,
+  UsePreparedSnapshotResult,
   WhatsAppConnectionView,
   WhatsAppCredentialMode,
   WhatsAppTarget,
@@ -42,6 +43,7 @@ export const IPC_CHANNELS = {
   savePreparedSnapshot: 'exports:save-prepared-snapshot',
   listPreparedSnapshots: 'exports:list-prepared-snapshots',
   getPreparedSnapshot: 'exports:get-prepared-snapshot',
+  usePreparedSnapshot: 'exports:use-prepared-snapshot',
   deletePreparedSnapshot: 'exports:delete-prepared-snapshot',
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
@@ -88,6 +90,7 @@ export interface StickerAppApi {
   savePreparedSnapshot(forceDuplicate?: boolean): Promise<SavePreparedSnapshotResult>
   listPreparedSnapshots(): Promise<PreparedSnapshotSummary[]>
   getPreparedSnapshot(id: string): Promise<PreparedSnapshotView>
+  usePreparedSnapshot(id: string): Promise<UsePreparedSnapshotResult>
   deletePreparedSnapshot(id: string): Promise<boolean>
   importAssets(mode: ImportMode): Promise<ImportSummary>
   discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
