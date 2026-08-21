@@ -1286,21 +1286,26 @@ function TransferStep(props: ExportPageProps) {
         )}
       </section>
       {prepared && (
-        <label className="snapshot-choice">
-          <input type="checkbox" checked={Boolean(task.prepared?.snapshotId)} readOnly />
-          <span>
+        <div className="snapshot-save-card">
+          <div className="snapshot-save-copy">
             <strong>保留本次准备结果</strong>
             <small>保存不可变副本，以后可预览或再次传输。</small>
-          </span>
-          <button
-            className="text-button"
-            type="button"
-            disabled={props.busy || Boolean(task.prepared?.snapshotId)}
-            onClick={() => props.onSaveSnapshot()}
-          >
-            {task.prepared?.snapshotId ? '已保存' : '保存'}
-          </button>
-        </label>
+          </div>
+          {task.prepared?.snapshotId ? (
+            <span className="snapshot-save-status">
+              <CheckCircle size={15} weight="bold" /> 已保存
+            </span>
+          ) : (
+            <button
+              className="snapshot-save-button"
+              type="button"
+              disabled={props.busy}
+              onClick={() => props.onSaveSnapshot()}
+            >
+              保存分组存档
+            </button>
+          )}
+        </div>
       )}
       {prepared && whatsAppDestination && (
         <WhatsAppSendPanel

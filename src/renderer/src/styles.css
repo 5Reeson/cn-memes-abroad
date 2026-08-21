@@ -3436,31 +3436,67 @@ button:disabled {
   place-items: center;
 }
 
-.snapshot-choice {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+.snapshot-save-card {
+  display: flex;
   align-items: center;
-  gap: 11px;
+  justify-content: space-between;
+  gap: 16px;
   margin: 18px 0;
-  padding: 12px 2px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
 }
 
-.snapshot-choice input {
-  accent-color: var(--accent);
-}
-
-.snapshot-choice span {
+.snapshot-save-copy {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
-.snapshot-choice strong {
+.snapshot-save-copy strong {
   font-size: 12px;
 }
 
-.snapshot-choice small {
+.snapshot-save-copy small {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.snapshot-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.snapshot-save-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-muted);
+}
+
+.snapshot-save-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  color: #267849;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .saved-results > div,
@@ -3941,6 +3977,10 @@ button:focus-visible .path-display[data-tooltip-placement='right'] .path-display
   }
 
   .prepared-group-status.is-ready {
+    color: #78c797;
+  }
+
+  .snapshot-save-status {
     color: #78c797;
   }
 }
