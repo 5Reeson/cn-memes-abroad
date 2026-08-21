@@ -135,6 +135,33 @@ describe('WechatLegacySource', () => {
     )
   })
 
+  it('limits an account preview to the first five stickers in archive order', async () => {
+    const urls = Array.from({ length: 7 }, (_, index) => `https://stickers.example/${index}`)
+    await writeArchive(urls)
+    const png = await sharp({
+      create: { width: 24, height: 24, channels: 4, background: 'purple' },
+    })
+      .png()
+      .toBuffer()
+    const fetcher = vi.fn(async () => {
+      return new Response(Uint8Array.from(png), { status: 200 })
+    }) as typeof fetch
+    const source = new WechatLegacySource({ root, fetcher, sleeper: async () => undefined })
+    const [account] = (await source.discover()).accounts
+
+    const result = await source.import({
+      accountId: account!.id,
+      collection: collection(),
+      collectionDirectory,
+      downloadMode: 'fast',
+      maxItems: 5,
+    })
+
+    expect(fetcher).toHaveBeenCalledTimes(5)
+    expect(result.assets).toHaveLength(1)
+    expect(result.duplicates).toHaveLength(4)
+  })
+
   it.each([
     ['default', 500],
     ['safe', 1_500],

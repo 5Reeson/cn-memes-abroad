@@ -55,6 +55,7 @@ export interface LegacyWechatImportRequest {
   downloadMode: LegacyWechatDownloadMode
   collection: StickerCollection
   collectionDirectory: string
+  maxItems?: number
   signal?: AbortSignal
 }
 
@@ -232,20 +233,22 @@ export class WechatLegacySource {
     const parsed = await readFavArchive(account.archivePath)
     request.signal?.throwIfAborted()
     if (parsed.urls.length === 0) throw new Error('该账号的 fav.archive 中没有可下载的收藏表情')
+    const urls =
+      request.maxItems === undefined ? parsed.urls : parsed.urls.slice(0, request.maxItems)
     const downloadPolicy = DOWNLOAD_POLICIES[request.downloadMode]
 
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'cn-memes-wechat-legacy-'))
     await chmod(temporaryDirectory, 0o700)
-    const downloadedByIndex: Array<string | undefined> = Array(parsed.urls.length)
+    const downloadedByIndex: Array<string | undefined> = Array(urls.length)
     const labels = new Map<string, string>()
-    const downloadFailuresByIndex: Array<ImportFailure | undefined> = Array(parsed.urls.length)
+    const downloadFailuresByIndex: Array<ImportFailure | undefined> = Array(urls.length)
     let nextDownloadIndex = 0
     let completedDownloads = 0
 
     const report = async (progress: ImportProgress) => onProgress?.(progress)
     await report({
       completed: 0,
-      total: parsed.urls.length,
+      total: urls.length,
       imported: 0,
       duplicates: 0,
       failed: 0,
@@ -254,7 +257,7 @@ export class WechatLegacySource {
 
     try {
       const downloadWorker = async () => {
-        while (nextDownloadIndex < parsed.urls.length) {
+        while (nextDownloadIndex < urls.length) {
           request.signal?.throwIfAborted()
           const index = nextDownloadIndex
           nextDownloadIndex += 1
@@ -262,7 +265,7 @@ export class WechatLegacySource {
             await this.sleeper(randomInterval(downloadPolicy, this.random), request.signal)
           }
           request.signal?.throwIfAborted()
-          const url = parsed.urls[index]!
+          const url = urls[index]!
           const label = `微信表情 ${String(index + 1).padStart(4, '0')}`
           try {
             const bytes = await this.download(url, request.signal)
@@ -278,7 +281,7 @@ export class WechatLegacySource {
           completedDownloads += 1
           await report({
             completed: completedDownloads,
-            total: parsed.urls.length,
+            total: urls.length,
             imported: 0,
             duplicates: 0,
             failed: downloadFailuresByIndex.filter(Boolean).length,
@@ -288,10 +291,7 @@ export class WechatLegacySource {
         }
       }
       await Promise.all(
-        Array.from(
-          { length: Math.min(downloadPolicy.concurrency, parsed.urls.length) },
-          downloadWorker,
-        ),
+        Array.from({ length: Math.min(downloadPolicy.concurrency, urls.length) }, downloadWorker),
       )
       const downloaded = downloadedByIndex.filter((path): path is string => path !== undefined)
       const downloadFailures = downloadFailuresByIndex.filter(
@@ -315,7 +315,7 @@ export class WechatLegacySource {
           await report({
             ...progress,
             completed: downloadFailures.length + progress.completed,
-            total: parsed.urls.length,
+            total: urls.length,
             failed: downloadFailures.length + progress.failed,
             phase: 'importing',
             ...(progress.currentPath === undefined
@@ -328,8 +328,8 @@ export class WechatLegacySource {
       request.signal?.throwIfAborted()
       const remapPath = (path: string) => labels.get(path) ?? '微信表情'
       await report({
-        completed: parsed.urls.length,
-        total: parsed.urls.length,
+        completed: urls.length,
+        total: urls.length,
         imported: imported.assets.length,
         duplicates: imported.duplicates.length,
         failed: downloadFailures.length + imported.failures.length,

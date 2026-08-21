@@ -35,10 +35,16 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.deletePreparedSnapshot, id),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),
   discoverLegacyWechat: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDiscover),
+  getWechatAccountPreview: (accountKind, accountId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatPreviewGet, accountKind, accountId),
+  previewLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyPreview, accountId, downloadMode),
   importLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
     ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyImport, accountId, downloadMode),
   cancelLegacyWechatImport: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyCancel),
   discoverWechat4: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Discover),
+  previewWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4Preview, accountId, confirmed, downloadMode),
   importWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
     ipcRenderer.invoke(IPC_CHANNELS.wechat4Import, accountId, confirmed, downloadMode),
   cancelWechat4Import: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Cancel),

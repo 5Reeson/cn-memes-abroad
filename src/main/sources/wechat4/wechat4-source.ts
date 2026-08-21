@@ -44,6 +44,7 @@ export interface Wechat4ImportRequest {
   sourceLabel?: string
   collection: StickerCollection
   collectionDirectory: string
+  maxItems?: number
   downloadMode?: WechatDownloadMode
   signal?: AbortSignal
 }
@@ -521,6 +522,7 @@ export class Wechat4StickerSource {
         snapshot,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       })
+      if (request.maxItems !== undefined) records = records.slice(0, request.maxItems)
       request.signal?.throwIfAborted()
       if (records.length === 0) throw new Error('该账号没有可导入的收藏或自定义表情')
 
@@ -557,6 +559,7 @@ export class Wechat4StickerSource {
           snapshot,
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         })
+        if (request.maxItems !== undefined) records = records.slice(0, request.maxItems)
         if (records.length === 0) throw new Error('该账号没有可导入的收藏或自定义表情')
         cachePaths = await resolveWechat4EmoticonCaches(
           request.accountId,

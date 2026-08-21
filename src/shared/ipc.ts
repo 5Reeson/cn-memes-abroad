@@ -25,6 +25,9 @@ import type {
   WhatsAppTarget,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  WechatAccountKind,
+  WechatAccountPreviewResult,
+  WechatAccountPreviewView,
   WechatDownloadMode,
 } from './domain.js'
 
@@ -48,10 +51,13 @@ export const IPC_CHANNELS = {
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
   wechatLegacyDiscover: 'wechat-legacy:discover',
+  wechatPreviewGet: 'wechat-preview:get',
+  wechatLegacyPreview: 'wechat-legacy:preview',
   wechatLegacyImport: 'wechat-legacy:import',
   wechatLegacyCancel: 'wechat-legacy:cancel',
   wechatLegacyProgress: 'wechat-legacy:progress',
   wechat4Discover: 'wechat4:discover',
+  wechat4Preview: 'wechat4:preview',
   wechat4Import: 'wechat4:import',
   wechat4Cancel: 'wechat4:cancel',
   wechat4FavoritesReady: 'wechat4:favorites-ready',
@@ -94,12 +100,25 @@ export interface StickerAppApi {
   deletePreparedSnapshot(id: string): Promise<boolean>
   importAssets(mode: ImportMode): Promise<ImportSummary>
   discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
+  getWechatAccountPreview(
+    accountKind: WechatAccountKind,
+    accountId: string,
+  ): Promise<WechatAccountPreviewView | undefined>
+  previewLegacyWechat(
+    accountId: string,
+    downloadMode: LegacyWechatDownloadMode,
+  ): Promise<WechatAccountPreviewResult>
   importLegacyWechat(
     accountId: string,
     downloadMode: LegacyWechatDownloadMode,
   ): Promise<ImportSummary>
   cancelLegacyWechatImport(): Promise<boolean>
   discoverWechat4(): Promise<Wechat4ImportDiscoveryView>
+  previewWechat4(
+    accountId: string,
+    confirmed: boolean,
+    downloadMode: WechatDownloadMode,
+  ): Promise<WechatAccountPreviewResult>
   importWechat4(
     accountId: string,
     confirmed: boolean,

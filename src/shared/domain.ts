@@ -314,6 +314,24 @@ export interface Wechat4GateStatus {
 export type WechatDownloadMode = 'default' | 'fast' | 'safe'
 export type LegacyWechatDownloadMode = WechatDownloadMode
 
+export type WechatAccountKind = 'current' | 'legacy'
+
+export type WechatStagedAssetView = Omit<StickerAsset, 'originalPath'> & {
+  previewUrl: string
+}
+
+export interface WechatAccountPreviewView {
+  accountKind: WechatAccountKind
+  accountId: string
+  assets: WechatStagedAssetView[]
+  updatedAt: string
+}
+
+export interface WechatAccountPreviewResult {
+  canceled: boolean
+  preview?: WechatAccountPreviewView
+}
+
 export interface PackSettings {
   title: string
   publisher: string

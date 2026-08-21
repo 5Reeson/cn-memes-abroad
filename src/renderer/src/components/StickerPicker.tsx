@@ -10,12 +10,8 @@ import {
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { DotsSixIcon as Grip } from '@phosphor-icons/react/DotsSix'
-import { CheckIcon as Check } from '@phosphor-icons/react/Check'
-import { CopySimpleIcon as CopySimple } from '@phosphor-icons/react/CopySimple'
 import { MagnifyingGlassIcon as Search } from '@phosphor-icons/react/MagnifyingGlass'
 import { SquareIcon as Square } from '@phosphor-icons/react/Square'
-import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
-import { XIcon as X } from '@phosphor-icons/react/X'
 
 import type { CollectionView, StickerSourceKind } from '../../../shared/domain.js'
 import {
@@ -25,12 +21,12 @@ import {
   rectanglesIntersect,
   viewportPointInScrollContent,
 } from './boxSelection.js'
-import { ProgressiveImage } from './ProgressiveImage.js'
 import { MenuSelect } from './MenuSelect.js'
+import { ProgressiveImage } from './ProgressiveImage.js'
+import { StickerImagePreviewDialog } from './StickerImagePreviewDialog.js'
 import { useProgressiveCount } from './useProgressiveCount.js'
 
 type Asset = CollectionView['assets'][number]
-type CopyStatus = 'idle' | 'copying' | 'copied' | 'failed'
 
 const INITIAL_TILE_COUNT = 72
 const TILE_BATCH_SIZE = 48
@@ -92,7 +88,6 @@ export function StickerPicker({
   const [source, setSource] = useState('all')
   const [sort, setSort] = useState<'user-order' | 'reverse-order'>('user-order')
   const [preview, setPreview] = useState<Asset | null>(null)
-  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
   const gridRef = useRef<HTMLDivElement>(null)
   const marqueeRef = useRef<HTMLDivElement>(null)
   const boxSelectionRef = useRef<BoxSelectionSession | null>(null)
@@ -178,16 +173,6 @@ export function StickerPicker({
   )
 
   useEffect(() => {
-    if (!preview) return
-    setCopyStatus('idle')
-    function closePreview(event: KeyboardEvent) {
-      if (event.key === 'Escape') setPreview(null)
-    }
-    window.addEventListener('keydown', closePreview)
-    return () => window.removeEventListener('keydown', closePreview)
-  }, [preview])
-
-  useEffect(() => {
     if (preview && !assets.some((asset) => asset.id === preview.id)) setPreview(null)
   }, [assets, preview])
 
@@ -213,24 +198,10 @@ export function StickerPicker({
   }
 
   async function copyPreviewImage() {
-    if (!preview || copyStatus === 'copying') return
+    if (!preview) return
     const api = window.stickerApp
-    if (!api) {
-      setCopyStatus('failed')
-      return
-    }
-    setCopyStatus('copying')
-    try {
-      await api.copyAssetImage(preview.id)
-      setCopyStatus('copied')
-    } catch {
-      setCopyStatus('failed')
-    }
-  }
-
-  async function deletePreviewAsset() {
-    if (!preview || !onDelete) return
-    await onDelete([preview.id])
+    if (!api) throw new Error('桌面桥接不可用')
+    await api.copyAssetImage(preview.id)
   }
 
   function dragEnd(event: DragEndEvent) {
@@ -584,60 +555,12 @@ export function StickerPicker({
         </button>
       )}
       {preview && (
-        <div className="preview-backdrop" role="presentation" onClick={() => setPreview(null)}>
-          <div
-            className="preview-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`预览 ${preview.displayName}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              className="preview-close"
-              type="button"
-              onClick={() => setPreview(null)}
-              aria-label="关闭预览"
-            >
-              <X size={18} />
-            </button>
-            <ProgressiveImage src={preview.previewUrl} alt={preview.displayName} eager />
-            <strong>{preview.displayName}</strong>
-            <div className="preview-footer">
-              <div className="preview-meta">
-                <span>
-                  {preview.animated ? '动图' : '静态'} · {preview.width} × {preview.height}
-                </span>
-                <button
-                  type="button"
-                  disabled={copyStatus === 'copying'}
-                  aria-live="polite"
-                  title={preview.animated ? '复制动图首帧' : '复制图片'}
-                  onClick={() => void copyPreviewImage()}
-                >
-                  {copyStatus === 'copied' ? <Check size={13} /> : <CopySimple size={13} />}
-                  {copyStatus === 'copying'
-                    ? '复制中'
-                    : copyStatus === 'copied'
-                      ? '已复制'
-                      : copyStatus === 'failed'
-                        ? '重试复制'
-                        : '复制'}
-                </button>
-              </div>
-              {onDelete && (
-                <button
-                  className="preview-delete"
-                  type="button"
-                  aria-label={`删除 ${preview.displayName}`}
-                  onClick={() => void deletePreviewAsset()}
-                >
-                  <Trash size={14} />
-                  删除
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <StickerImagePreviewDialog
+          asset={preview}
+          onClose={() => setPreview(null)}
+          onCopy={copyPreviewImage}
+          {...(onDelete ? { onDelete: () => onDelete([preview.id]) } : {})}
+        />
       )}
     </section>
   )

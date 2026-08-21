@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { ArrowClockwiseIcon as ArrowClockwise } from '@phosphor-icons/react/ArrowClockwise'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { DownloadSimpleIcon as DownloadSimple } from '@phosphor-icons/react/DownloadSimple'
+import { EyeIcon as Eye } from '@phosphor-icons/react/Eye'
 import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
 import { WarningIcon as Warning } from '@phosphor-icons/react/Warning'
@@ -16,14 +17,30 @@ import type {
   Wechat4GateStatus,
   Wechat4ImportAccountView,
   Wechat4ImportDiscoveryView,
+  WechatAccountPreviewView,
+  WechatStagedAssetView,
   WechatDownloadMode,
 } from '../../shared/domain.js'
 import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
+import { ProgressiveImage } from './components/ProgressiveImage.js'
+import { StickerImagePreviewDialog } from './components/StickerImagePreviewDialog.js'
 import { WechatDownloadSettings } from './components/WechatDownloadSettings.js'
 
 type WechatAccount =
   | { kind: 'current'; account: Wechat4ImportAccountView }
   | { kind: 'legacy'; account: LegacyWechatAccountView }
+
+type WechatAccountAction = 'preview' | 'download'
+
+interface PendingAction {
+  account: Wechat4ImportAccountView
+  action: WechatAccountAction
+}
+
+interface ActiveTask {
+  item: WechatAccount
+  action: WechatAccountAction
+}
 
 interface WechatDiscoveries {
   current: Wechat4ImportDiscoveryView
@@ -78,9 +95,13 @@ export function WechatImportPanel({
 }) {
   const [discoveries, setDiscoveries] = useState<WechatDiscoveries>(EMPTY_DISCOVERIES)
   const [loading, setLoading] = useState(true)
-  const [pendingAccount, setPendingAccount] = useState<Wechat4ImportAccountView | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-  const [importingAccount, setImportingAccount] = useState<WechatAccount | null>(null)
+  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
+  const [accountPreviews, setAccountPreviews] = useState<Record<string, WechatAccountPreviewView>>(
+    {},
+  )
+  const [previewAsset, setPreviewAsset] = useState<WechatStagedAssetView | null>(null)
   const [downloadMode, setDownloadMode] = useState<WechatDownloadMode>('default')
   const [canceling, setCanceling] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -101,6 +122,19 @@ export function WechatImportPanel({
         api.discoverLegacyWechat(),
       ])
       setDiscoveries({ current, legacy })
+      const accounts: WechatAccount[] = [
+        ...current.accounts.map((account) => ({ kind: 'current' as const, account })),
+        ...legacy.accounts.map((account) => ({ kind: 'legacy' as const, account })),
+      ]
+      const cached = await Promise.all(
+        accounts.map(async (item) => {
+          const preview = await api
+            .getWechatAccountPreview(item.kind, item.account.id)
+            .catch(() => undefined)
+          return preview ? ([accountKey(item), preview] as const) : undefined
+        }),
+      )
+      setAccountPreviews(Object.fromEntries(cached.filter((item) => item !== undefined)))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -121,61 +155,85 @@ export function WechatImportPanel({
     }
   }, [])
 
-  function selectAccount(item: WechatAccount) {
+  function selectAccount(item: WechatAccount, action: WechatAccountAction) {
     setError(null)
     if (item.kind === 'current') {
-      setPendingAccount(item.account)
+      setPendingAction({ account: item.account, action })
       setConfirmed(false)
       return
     }
-    void importLegacyAccount(item)
+    void runLegacyAccountAction(item, action)
   }
 
-  async function importLegacyAccount(item: Extract<WechatAccount, { kind: 'legacy' }>) {
+  async function runLegacyAccountAction(
+    item: Extract<WechatAccount, { kind: 'legacy' }>,
+    action: WechatAccountAction,
+  ) {
     const api = window.stickerApp
     if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    setImportingAccount(item)
+    setActiveTask({ item, action })
     setProgress(null)
     try {
-      const result = await api.importLegacyWechat(item.account.id, downloadMode)
-      if (!result.canceled) {
-        onImported(result)
-        onClose()
+      if (action === 'preview') {
+        const result = await api.previewLegacyWechat(item.account.id, downloadMode)
+        if (result.preview) {
+          setAccountPreviews((current) => ({
+            ...current,
+            [accountKey(item)]: result.preview!,
+          }))
+        }
+      } else {
+        const result = await api.importLegacyWechat(item.account.id, downloadMode)
+        if (!result.canceled) {
+          onImported(result)
+          onClose()
+        }
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setImportingAccount(null)
+      setActiveTask(null)
       setProgress(null)
       setCanceling(false)
     }
   }
 
-  async function importCurrentAccount() {
+  async function runCurrentAccountAction() {
     const api = window.stickerApp
-    if (!api || !pendingAccount || !confirmed) return
-    const item: WechatAccount = { kind: 'current', account: pendingAccount }
-    setPendingAccount(null)
-    setImportingAccount(item)
+    if (!api || !pendingAction || !confirmed) return
+    const item: WechatAccount = { kind: 'current', account: pendingAction.account }
+    const action = pendingAction.action
+    setPendingAction(null)
+    setActiveTask({ item, action })
     setProgress(null)
     setError(null)
     try {
-      const result = await api.importWechat4(item.account.id, true, downloadMode)
-      if (!result.canceled) {
-        onImported(result)
-        onClose()
+      if (action === 'preview') {
+        const result = await api.previewWechat4(item.account.id, true, downloadMode)
+        if (result.preview) {
+          setAccountPreviews((current) => ({
+            ...current,
+            [accountKey(item)]: result.preview!,
+          }))
+        }
+      } else {
+        const result = await api.importWechat4(item.account.id, true, downloadMode)
+        if (!result.canceled) {
+          onImported(result)
+          onClose()
+        }
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setImportingAccount(null)
+      setActiveTask(null)
       setProgress(null)
       setCanceling(false)
     }
   }
 
   async function cancelImport(closeAfterCancel = false) {
-    if (!importingAccount) {
+    if (!activeTask) {
       if (closeAfterCancel) onClose()
       return
     }
@@ -184,7 +242,7 @@ export function WechatImportPanel({
     setCanceling(true)
     try {
       const stopped =
-        importingAccount.kind === 'current'
+        activeTask.item.kind === 'current'
           ? await api.cancelWechat4Import()
           : await api.cancelLegacyWechatImport()
       if (stopped) onStopped()
@@ -217,8 +275,11 @@ export function WechatImportPanel({
   ]
   const permissionDenied =
     discoveries.current.permissionDenied || discoveries.legacy.permissionDenied
-  const busy = importingAccount !== null || pendingAccount !== null
-  const statusLabel = importStatusLabel(gateStatus)
+  const busy = activeTask !== null || pendingAction !== null
+  const statusLabel =
+    activeTask?.action === 'preview' && gateStatus.phase === 'importing'
+      ? '正在生成账户预览'
+      : importStatusLabel(gateStatus)
 
   return (
     <section className="wechat-import-panel" aria-labelledby="wechat-title">
@@ -235,7 +296,7 @@ export function WechatImportPanel({
           className="panel-close"
           onClick={() => void closePanel()}
           disabled={canceling}
-          aria-label={importingAccount ? '停止导入并关闭' : '关闭微信导入'}
+          aria-label={activeTask ? '停止当前任务并关闭' : '关闭微信导入'}
         >
           <X size={17} />
         </button>
@@ -281,14 +342,17 @@ export function WechatImportPanel({
 
               <div className="wechat-account-list">
                 {accounts.map((item) => {
-                  const importing =
-                    importingAccount && accountKey(importingAccount) === accountKey(item)
+                  const taskForAccount =
+                    activeTask && accountKey(activeTask.item) === accountKey(item)
+                      ? activeTask
+                      : null
+                  const preview = accountPreviews[accountKey(item)]
                   const awaitingConsent =
-                    item.kind === 'current' && pendingAccount?.id === item.account.id
+                    item.kind === 'current' && pendingAction?.account.id === item.account.id
                   return (
                     <Fragment key={accountKey(item)}>
                       <article>
-                        <div>
+                        <div className="wechat-account-meta">
                           <strong>{item.account.label}</strong>
                           <span>
                             {item.kind === 'current'
@@ -296,15 +360,43 @@ export function WechatImportPanel({
                               : `${item.account.stickerCount} 张收藏表情`}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={busy}
-                          onClick={() => selectAccount(item)}
-                        >
-                          <DownloadSimple size={16} />
-                          {importing ? '正在导入...' : '选择并导入'}
-                        </button>
+                        {preview?.assets.length ? (
+                          <div className="wechat-account-preview-strip" aria-label="账户表情预览">
+                            {preview.assets.map((asset) => (
+                              <button
+                                type="button"
+                                key={asset.id}
+                                title={`预览 ${asset.displayName}`}
+                                aria-label={`预览 ${asset.displayName}`}
+                                onClick={() => setPreviewAsset(asset)}
+                              >
+                                <ProgressiveImage src={asset.previewUrl} alt="" eager />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="wechat-account-preview-placeholder" />
+                        )}
+                        <div className="wechat-account-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => selectAccount(item, 'preview')}
+                          >
+                            <Eye size={16} />
+                            {taskForAccount?.action === 'preview' ? '预览中...' : '预览'}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => selectAccount(item, 'download')}
+                          >
+                            <DownloadSimple size={16} />
+                            {taskForAccount?.action === 'download' ? '正在导入...' : '选择并导入'}
+                          </button>
+                        </div>
                       </article>
                       {awaitingConsent && (
                         <aside
@@ -339,7 +431,7 @@ export function WechatImportPanel({
                             <button
                               type="button"
                               className="secondary-button"
-                              onClick={() => setPendingAccount(null)}
+                              onClick={() => setPendingAction(null)}
                             >
                               取消
                             </button>
@@ -347,9 +439,10 @@ export function WechatImportPanel({
                               type="button"
                               className="primary-button"
                               disabled={!confirmed}
-                              onClick={() => void importCurrentAccount()}
+                              onClick={() => void runCurrentAccountAction()}
                             >
-                              <ShieldCheck size={16} /> 确认并开始
+                              <ShieldCheck size={16} />
+                              {pendingAction?.action === 'preview' ? '确认并预览' : '确认并开始'}
                             </button>
                           </div>
                         </aside>
@@ -372,19 +465,21 @@ export function WechatImportPanel({
         </>
       )}
 
-      {importingAccount && (
+      {activeTask && (
         <div
           className={`wechat-import-progress${
-            importingAccount.kind === 'current' ? ` wechat4-gate-${gateStatus.phase}` : ''
+            activeTask.item.kind === 'current' ? ` wechat4-gate-${gateStatus.phase}` : ''
           }`}
           aria-live="polite"
         >
           <div>
             <span>
-              {importingAccount.kind === 'current'
+              {activeTask.item.kind === 'current'
                 ? statusLabel
                 : progress?.phase === 'importing'
-                  ? '验证并导入图片'
+                  ? activeTask.action === 'preview'
+                    ? '生成账户预览'
+                    : '验证并导入图片'
                   : '下载图片'}
             </span>
             <span>{progress ? `${progress.completed} / ${progress.total}` : '准备中'}</span>
@@ -394,15 +489,15 @@ export function WechatImportPanel({
               style={{
                 width: progress?.total
                   ? `${Math.min(100, (progress.completed / progress.total) * 100)}%`
-                  : importingAccount.kind === 'current' && gateStatus.phase === 'awaiting-qr'
+                  : activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-qr'
                     ? '45%'
                     : '8%',
               }}
             />
           </div>
-          {importingAccount.kind === 'current' && gateStatus.phase === 'awaiting-qr' ? (
+          {activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-qr' ? (
             <p>请在临时微信窗口扫码登录，然后打开收藏表情面板。</p>
-          ) : importingAccount.kind === 'current' && gateStatus.phase === 'awaiting-favorites' ? (
+          ) : activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-favorites' ? (
             <div className="wechat4-favorites-ready">
               <p>请等到临时微信中的收藏表情缩略图显示出来，再继续导入。</p>
               <button
@@ -427,7 +522,7 @@ export function WechatImportPanel({
                 {canceling ? '正在取消' : '取消本次导入'}
               </button>
             </div>
-          ) : importingAccount.kind === 'current' ? (
+          ) : activeTask.item.kind === 'current' ? (
             <p>{gateStatus.message}</p>
           ) : (
             <p>正在准备导入…</p>
@@ -435,11 +530,15 @@ export function WechatImportPanel({
         </div>
       )}
 
-      {!importingAccount && !pendingAccount && accounts.length > 0 ? (
+      {!activeTask && !pendingAction && accounts.length > 0 ? (
         <p className="wechat4-privacy-note">
           <CheckCircle size={15} /> 微信数据只在本机读取和处理。
         </p>
       ) : null}
+
+      {previewAsset && (
+        <StickerImagePreviewDialog asset={previewAsset} onClose={() => setPreviewAsset(null)} />
+      )}
     </section>
   )
 }
