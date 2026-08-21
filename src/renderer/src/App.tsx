@@ -1243,6 +1243,14 @@ function TransferStep(props: ExportPageProps) {
                     </span>
                   </button>
                   <span className="prepared-group-side">
+                    <button
+                      className="prepared-group-preview"
+                      type="button"
+                      aria-label={`预览 ${group.name}`}
+                      onClick={() => setPreviewGroupId(group.id)}
+                    >
+                      <Eye size={15} />
+                    </button>
                     <small
                       className={`prepared-group-status ${
                         group.status === 'failed'
@@ -1260,14 +1268,6 @@ function TransferStep(props: ExportPageProps) {
                             : '不传输'
                           : '未导出'}
                     </small>
-                    <button
-                      className="prepared-group-preview"
-                      type="button"
-                      aria-label={`预览 ${group.name}`}
-                      onClick={() => setPreviewGroupId(group.id)}
-                    >
-                      <Eye size={15} />
-                    </button>
                   </span>
                 </article>
               )
