@@ -1276,6 +1276,13 @@ button:disabled {
   margin: 0;
 }
 
+.credential-mode-note {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .credential-mode-picker:disabled label {
   cursor: default;
   opacity: 0.72;

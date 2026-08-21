@@ -14,6 +14,7 @@ import type {
   WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
+import { isWhatsAppConnectionActive } from '../../shared/whatsapp-connection.js'
 import type { PreparedPack } from '../packs/pack-preparer.js'
 import { hasPairedCredentials } from './auth-store.js'
 import { CredentialAuthStore } from './credential-auth-store.js'
@@ -70,26 +71,13 @@ export class WhatsAppManager {
     this.view = {
       ...next,
       credentialMode: this.authStore.getMode(),
-      canChangeCredentialMode:
-        !next.hasSession &&
-        ![
-          'connecting',
-          'reconnecting',
-          'awaiting-qr',
-          'awaiting-pairing-code',
-          'connected',
-        ].includes(next.phase),
+      canChangeCredentialMode: !next.hasSession && !isWhatsAppConnectionActive(next.phase),
     }
     this.onStatus(this.view)
   }
 
   async setCredentialMode(mode: WhatsAppCredentialMode): Promise<WhatsAppConnectionView> {
-    if (
-      this.socket ||
-      ['connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code', 'connected'].includes(
-        this.view.phase,
-      )
-    ) {
+    if (this.socket || isWhatsAppConnectionActive(this.view.phase)) {
       throw new Error('请先断开 WhatsApp 连接，再切换凭证存储方式')
     }
     await this.authStore.setMode(mode)
@@ -110,11 +98,7 @@ export class WhatsAppManager {
   }
 
   async connect(pairingPhone?: string): Promise<WhatsAppConnectionView> {
-    if (
-      ['connected', 'connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code'].includes(
-        this.view.phase,
-      )
-    ) {
+    if (isWhatsAppConnectionActive(this.view.phase)) {
       return this.view
     }
     const phone = pairingPhone?.replace(/\D/g, '')
@@ -155,8 +139,7 @@ export class WhatsAppManager {
       message: hasSession ? '正在复用已保存的 session…' : '正在建立连接…',
     })
 
-    const browser =
-      browserMode === 'phone' ? Browsers.macOS('Chrome') : Browsers.macOS('Desktop')
+    const browser = browserMode === 'phone' ? Browsers.macOS('Chrome') : Browsers.macOS('Desktop')
     const socket = makeWASocket({
       auth: state,
       browser,

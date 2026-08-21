@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowClockwiseIcon as ArrowClockwise } from '@phosphor-icons/react/ArrowClockwise'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
-import { DeviceMobileIcon as DeviceMobile } from '@phosphor-icons/react/DeviceMobile'
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/MagnifyingGlass'
 import { PaperPlaneTiltIcon as PaperPlaneTilt } from '@phosphor-icons/react/PaperPlaneTilt'
 import { SignOutIcon as SignOut } from '@phosphor-icons/react/SignOut'
@@ -13,58 +12,32 @@ import type {
   PreparedPackView,
   SendPackProgress,
   SendPackReceipt,
-  WhatsAppConnectionPhase,
   WhatsAppConnectionView,
-  WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
-import { WhatsAppQrPreview } from './components/WhatsAppQrPreview.js'
+import { whatsAppConnectionLabel } from '../../shared/whatsapp-connection.js'
+import { WhatsAppConnectionControls } from './components/WhatsAppConnectionControls.js'
+import { useWhatsAppConnectionController } from './components/useWhatsAppConnectionController.js'
 
 interface WhatsAppSendPanelProps {
+  connection: WhatsAppConnectionView
   expectedPackCount: number
   preparedPacks: PreparedPackView[]
   selectedPackIds: string[]
+  onConnectionChange(status: WhatsAppConnectionView): void
   onError(message: string): void
   onSent?(): void
 }
 
-const initialConnection: WhatsAppConnectionView = {
-  phase: 'disconnected',
-  hasSession: false,
-  credentialMode: 'keychain',
-  canChangeCredentialMode: true,
-}
-
-function connectionLabel(phase: WhatsAppConnectionPhase): string {
-  switch (phase) {
-    case 'connected':
-      return '已连接'
-    case 'connecting':
-    case 'reconnecting':
-      return '连接中'
-    case 'awaiting-qr':
-    case 'awaiting-pairing-code':
-      return '等待关联'
-    case 'error':
-      return '连接异常'
-    case 'logged-out':
-      return '未登录'
-    default:
-      return '未连接'
-  }
-}
-
 export function WhatsAppSendPanel({
+  connection,
   expectedPackCount,
   preparedPacks,
   selectedPackIds,
+  onConnectionChange,
   onError,
   onSent,
 }: WhatsAppSendPanelProps) {
-  const [connection, setConnection] = useState<WhatsAppConnectionView>(initialConnection)
-  const [connectionBusy, setConnectionBusy] = useState(false)
-  const [pairingMode, setPairingMode] = useState(false)
-  const [pairingPhone, setPairingPhone] = useState('')
   const [groups, setGroups] = useState<WhatsAppTarget[] | null>(null)
   const [groupsLoading, setGroupsLoading] = useState(false)
   const [groupSearch, setGroupSearch] = useState('')
@@ -72,6 +45,11 @@ export function WhatsAppSendPanel({
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState<Record<string, SendPackProgress>>({})
   const [receipts, setReceipts] = useState<Record<string, SendPackReceipt>>({})
+  const connectionController = useWhatsAppConnectionController({
+    connection,
+    onConnectionChange,
+    onError,
+  })
 
   const packSignature = preparedPacks.map((pack) => `${pack.id}:${pack.status}`).join('|')
   const selectedPacks = preparedPacks.filter((pack) => selectedPackIds.includes(pack.id))
@@ -101,108 +79,27 @@ export function WhatsAppSendPanel({
   useEffect(() => {
     const api = window.stickerApp
     if (!api) return
-    const receiveStatus = (status: WhatsAppConnectionView) => {
-      setConnection(status)
-      if (status.phase === 'connected' && status.selfTarget) {
-        setPairingMode(false)
-        setSelectedTargetId((current) => current ?? status.selfTarget!.id)
-      }
-      if (status.phase !== 'connected') {
-        setGroups(null)
-        setGroupSearch('')
-      }
-    }
-    const unsubscribeStatus = api.onWhatsAppStatus(receiveStatus)
     const unsubscribeProgress = api.onSendPackProgress((progress) => {
       setSendProgress((current) => ({ ...current, [progress.packId]: progress }))
     })
-    api
-      .getWhatsAppStatus()
-      .then(receiveStatus)
-      .catch(() => undefined)
-    return () => {
-      unsubscribeStatus()
-      unsubscribeProgress()
-    }
+    return unsubscribeProgress
   }, [])
+
+  useEffect(() => {
+    if (connection.phase === 'connected' && connection.selfTarget) {
+      setSelectedTargetId((current) => current ?? connection.selfTarget!.id)
+    }
+    if (connection.phase !== 'connected') {
+      setSelectedTargetId(null)
+      setGroups(null)
+      setGroupSearch('')
+    }
+  }, [connection.phase, connection.selfTarget])
 
   useEffect(() => {
     setSendProgress({})
     setReceipts({})
   }, [packSignature])
-
-  async function connect(pairingPhoneNumber?: string) {
-    const api = window.stickerApp
-    if (!api) return onError('桌面桥接不可用，请重新打开应用。')
-    setConnectionBusy(true)
-    if (pairingPhoneNumber === undefined) setPairingMode(false)
-    try {
-      setConnection(await api.connectWhatsApp(pairingPhoneNumber))
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setConnectionBusy(false)
-    }
-  }
-
-  async function disconnect() {
-    const api = window.stickerApp
-    if (!api) return
-    setConnectionBusy(true)
-    try {
-      setConnection(await api.disconnectWhatsApp())
-      setSelectedTargetId(null)
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setConnectionBusy(false)
-    }
-  }
-
-  async function setCredentialMode(mode: WhatsAppCredentialMode) {
-    const api = window.stickerApp
-    if (!api || mode === connection.credentialMode) return
-    setConnectionBusy(true)
-    try {
-      setConnection(await api.setWhatsAppCredentialMode(mode))
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setConnectionBusy(false)
-    }
-  }
-
-  async function switchToPairingMode() {
-    if (
-      ['connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code'].includes(
-        connection.phase,
-      )
-    ) {
-      await disconnect()
-    }
-    setPairingMode(true)
-  }
-
-  async function logout() {
-    const api = window.stickerApp
-    if (
-      !api ||
-      !window.confirm(
-        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和表情分组存档不会删除。',
-      )
-    )
-      return
-    setConnectionBusy(true)
-    try {
-      setConnection(await api.logoutWhatsApp(true))
-      setSelectedTargetId(null)
-      setGroups(null)
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setConnectionBusy(false)
-    }
-  }
 
   async function loadGroups() {
     const api = window.stickerApp
@@ -240,12 +137,6 @@ export function WhatsAppSendPanel({
   }
 
   const connected = connection.phase === 'connected'
-  const awaitingLogin = [
-    'connecting',
-    'reconnecting',
-    'awaiting-qr',
-    'awaiting-pairing-code',
-  ].includes(connection.phase)
 
   return (
     <section className="whatsapp-panel" aria-labelledby="whatsapp-panel-title">
@@ -256,7 +147,7 @@ export function WhatsAppSendPanel({
           <p>默认发给你自己。只有你主动点击按钮后，才会加载更多可用的 WhatsApp 群聊。</p>
         </div>
         <span className={`connection-pill ${connection.phase}`}>
-          <span /> {connectionLabel(connection.phase)}
+          <span /> {whatsAppConnectionLabel(connection.phase)}
         </span>
       </div>
 
@@ -279,134 +170,11 @@ export function WhatsAppSendPanel({
             </div>
           </div>
 
-          <fieldset
-            className="credential-mode-picker"
-            disabled={!connection.canChangeCredentialMode || connectionBusy}
-          >
-            <legend>WhatsApp 凭证存储</legend>
-            <label className={connection.credentialMode === 'keychain' ? 'is-selected' : ''}>
-              <input
-                type="radio"
-                name="whatsapp-credential-mode"
-                checked={connection.credentialMode === 'keychain'}
-                onChange={() => void setCredentialMode('keychain')}
-              />
-              <span>
-                <strong>macOS 钥匙串保护</strong>
-                <small>推荐。使用系统安全存储加密 session。</small>
-              </span>
-            </label>
-            <label className={connection.credentialMode === 'plaintext' ? 'is-selected' : ''}>
-              <input
-                type="radio"
-                name="whatsapp-credential-mode"
-                checked={connection.credentialMode === 'plaintext'}
-                onChange={() => void setCredentialMode('plaintext')}
-              />
-              <span>
-                <strong>本地明文文件</strong>
-                <small>安全性较低；目录 0700、文件 0600，仅建议排障时使用。</small>
-              </span>
-            </label>
-            {!connection.canChangeCredentialMode && (
-              <p>
-                {connection.hasSession
-                  ? '已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。'
-                  : '连接流程进行中；如需更改，请先取消连接。'}
-              </p>
-            )}
-          </fieldset>
-
-          {connection.phase === 'awaiting-qr' && connection.qrDataUrl && (
-            <div className="login-challenge">
-              <WhatsAppQrPreview src={connection.qrDataUrl} />
-              <div>
-                <strong>请用手机扫描二维码</strong>
-                <p>WhatsApp → 设置 → 已关联设备 → 关联设备。</p>
-                <button
-                  className="text-button"
-                  type="button"
-                  onClick={() => void switchToPairingMode()}
-                >
-                  改用手机号关联
-                </button>
-              </div>
-            </div>
-          )}
-
-          {connection.phase === 'awaiting-pairing-code' && connection.pairingCode && (
-            <div className="pairing-code-box">
-              <span>手机 WhatsApp → 已关联设备 → 使用电话号码关联</span>
-              <strong>{connection.pairingCode}</strong>
-            </div>
-          )}
-
-          {pairingMode && !connection.hasSession && !awaitingLogin && (
-            <div className="pairing-form">
-              <label>
-                <span>手机号（含国家/地区代码）</span>
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="例如 85212345678"
-                  value={pairingPhone}
-                  onChange={(event) =>
-                    setPairingPhone(event.target.value.replace(/[^\d+\s-]/g, ''))
-                  }
-                />
-              </label>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={connectionBusy || pairingPhone.replace(/\D/g, '').length < 8}
-                onClick={() => connect(pairingPhone)}
-              >
-                获取配对码
-              </button>
-            </div>
-          )}
-
-          <div className="connection-actions">
-            {!awaitingLogin && (
-              <div className="connection-methods">
-                <button
-                  className="primary-button connection-method-button"
-                  type="button"
-                  disabled={connectionBusy}
-                  onClick={() => connect()}
-                >
-                  <DeviceMobile size={16} />
-                  {connection.hasSession ? '恢复连接' : '扫描二维码连接'}
-                </button>
-                {!connection.hasSession && (
-                  <>
-                    <span className="connection-choice-or" aria-hidden="true">
-                      <strong>或</strong>
-                    </span>
-                    <button
-                      className="secondary-button connection-method-button"
-                      type="button"
-                      disabled={connectionBusy}
-                      onClick={() => setPairingMode((value) => !value)}
-                    >
-                      通过手机号连接
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-            {awaitingLogin && (
-              <button className="text-button" type="button" onClick={disconnect}>
-                取消连接
-              </button>
-            )}
-            {!awaitingLogin && (connection.hasSession || connection.phase === 'error') && (
-              <button className="text-button danger-text" type="button" onClick={logout}>
-                登出并清除登录凭证
-              </button>
-            )}
-          </div>
+          <WhatsAppConnectionControls
+            connection={connection}
+            controller={connectionController}
+            variant="card"
+          />
         </div>
       )}
 
@@ -559,16 +327,16 @@ export function WhatsAppSendPanel({
               <button
                 className="text-button"
                 type="button"
-                disabled={connectionBusy || sending}
-                onClick={disconnect}
+                disabled={connectionController.busy || sending}
+                onClick={() => void connectionController.disconnect()}
               >
                 断开本次连接
               </button>
               <button
                 className="text-button danger-text"
                 type="button"
-                disabled={connectionBusy || sending}
-                onClick={logout}
+                disabled={connectionController.busy || sending}
+                onClick={() => void connectionController.logout()}
               >
                 <SignOut size={14} /> 登出并清除登录凭证
               </button>

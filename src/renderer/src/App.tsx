@@ -32,12 +32,16 @@ import type {
   PreparedSnapshotSummary,
   WhatsAppConnectionView,
 } from '../../shared/domain.js'
+import {
+  INITIAL_WHATSAPP_CONNECTION,
+  whatsAppConnectionLabel,
+} from '../../shared/whatsapp-connection.js'
 import { AppShell, type AppPage } from './components/AppShell.js'
 import { PathDisplay } from './components/PathDisplay.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerPicker } from './components/StickerPicker.js'
 import { useProgressiveCount } from './components/useProgressiveCount.js'
-import { WhatsAppConnectionPanel, connectionLabel } from './components/WhatsAppConnectionPanel.js'
+import { WhatsAppConnectionPanel } from './components/WhatsAppConnectionPanel.js'
 import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
 import { Wechat4Panel } from './Wechat4Panel.js'
@@ -91,7 +95,7 @@ export function App() {
   const [snapshots, setSnapshots] = useState<PreparedSnapshotSummary[]>([])
   const [snapshotPreview, setSnapshotPreview] = useState<PreparedSnapshotView | null>(null)
   const [prepared, setPrepared] = useState<PrepareExportSummary | null>(null)
-  const [whatsApp, setWhatsApp] = useState<WhatsAppConnectionView | null>(null)
+  const [whatsApp, setWhatsApp] = useState<WhatsAppConnectionView>(INITIAL_WHATSAPP_CONNECTION)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -508,6 +512,7 @@ export function App() {
       />
     ) : page === 'connections' ? (
       <ConnectionsPage
+        connection={whatsApp}
         onError={setError}
         onStatus={setWhatsApp}
         onWechat4={() => setWechat4Open(true)}
@@ -585,7 +590,7 @@ interface ExportPageProps {
   task: ExportTask
   prepared: PrepareExportSummary | null
   snapshots: PreparedSnapshotSummary[]
-  whatsApp: WhatsAppConnectionView | null
+  whatsApp: WhatsAppConnectionView
   busy: boolean
   progress: ImportProgress | null
   failures: ImportFailure[]
@@ -832,7 +837,7 @@ function SourceStep(props: ExportPageProps) {
 }
 
 function DestinationStep(props: ExportPageProps) {
-  const connected = props.whatsApp?.phase === 'connected'
+  const connected = props.whatsApp.phase === 'connected'
   const [focusedDestination, setFocusedDestination] = useState<'whatsapp' | 'local'>(
     props.task.destination?.kind === 'local-folder' ? 'local' : 'whatsapp',
   )
@@ -898,7 +903,7 @@ function DestinationStep(props: ExportPageProps) {
             <p>
               {connected
                 ? '已连接，可以准备并发送原生贴纸包'
-                : `${connectionLabel(props.whatsApp?.phase ?? 'disconnected')}，可在这里完成关联`}
+                : `${whatsAppConnectionLabel(props.whatsApp.phase)}，可在这里完成关联`}
             </p>
           </div>
           <button
@@ -919,6 +924,7 @@ function DestinationStep(props: ExportPageProps) {
         </section>
         {!connected && whatsAppPanelOpen && (
           <WhatsAppConnectionPanel
+            connection={props.whatsApp}
             compact
             onStatus={props.onWhatsAppStatus}
             onError={props.onError}
@@ -1309,9 +1315,11 @@ function TransferStep(props: ExportPageProps) {
       )}
       {prepared && whatsAppDestination && (
         <WhatsAppSendPanel
+          connection={props.whatsApp}
           expectedPackCount={prepared.groups.length}
           preparedPacks={preparedPacks}
           selectedPackIds={selectedPackIds}
+          onConnectionChange={props.onWhatsAppStatus}
           onError={props.onError}
           onSent={props.onRefreshTask}
         />
@@ -1737,11 +1745,13 @@ function LibraryPage({
 }
 
 function ConnectionsPage({
+  connection,
   onError,
   onStatus,
   onWechat4,
   wechatPanel,
 }: {
+  connection: WhatsAppConnectionView
   onError(message: string): void
   onStatus(status: WhatsAppConnectionView): void
   onWechat4(): void
@@ -1753,7 +1763,7 @@ function ConnectionsPage({
         title="连接到 App"
         description="管理长期连接与本机导入授权。连接配置不会变成第二条导出流程。"
       />
-      <WhatsAppConnectionPanel onError={onError} onStatus={onStatus} />
+      <WhatsAppConnectionPanel connection={connection} onError={onError} onStatus={onStatus} />
       <section className="connection-panel wechat-access">
         <header>
           <span className="destination-icon wechat">
