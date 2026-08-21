@@ -134,7 +134,7 @@ describe('PackPreparer', () => {
         {
           id: 'source-wechat4-test',
           kind: 'wechat4',
-          label: '微信 4.x 账号 · 0001',
+          label: '新版微信账号 · 0001',
           accountId: 'wechat4-test-account',
           importedAt: '2026-08-08T00:00:00.000Z',
         },
@@ -183,7 +183,7 @@ describe('PackPreparer', () => {
         {
           id: 'source-wechat4-many-frame',
           kind: 'wechat4',
-          label: '微信 4.x 账号 · 0001',
+          label: '新版微信账号 · 0001',
           accountId: 'wechat4-test-account',
           importedAt: '2026-08-08T00:00:00.000Z',
         },

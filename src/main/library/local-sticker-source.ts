@@ -209,8 +209,8 @@ function sourceReference(attribution: ImportAttribution, importedAt: string): St
     attribution.sourceKind === 'local'
       ? '本机导入'
       : attribution.sourceKind === 'wechat4'
-        ? '微信 4.x 账号'
-        : '微信旧版账号'
+        ? '新版微信账号'
+        : '旧版微信账号'
   return {
     id,
     kind: attribution.sourceKind,

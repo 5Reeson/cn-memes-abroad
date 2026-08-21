@@ -57,10 +57,10 @@ describe('WechatLegacySource', () => {
 
     const result = await new WechatLegacySource({ root }).discover()
 
-    expect(result).toMatchObject({ rootFound: true, failures: [] })
+    expect(result).toMatchObject({ rootFound: true, permissionDenied: false, failures: [] })
     expect(result.accounts).toHaveLength(1)
     expect(result.accounts[0]).toMatchObject({
-      label: '微信账号 · cdef',
+      label: '旧版微信账号 cdef',
       stickerCount: 2,
     })
     expect(result.accounts[0]).not.toHaveProperty('archivePath')

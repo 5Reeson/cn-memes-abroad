@@ -42,14 +42,14 @@ const assets = [
       {
         id: 'wechat-account-a',
         kind: 'wechat4',
-        label: '微信 4.x 账号 · 0001',
+        label: '新版微信账号 · 0001',
         accountId: 'account-a',
         importedAt,
       },
       {
         id: 'wechat-account-b',
         kind: 'wechat4',
-        label: '微信 4.x 账号 · 0002',
+        label: '新版微信账号 · 0002',
         accountId: 'account-b',
         importedAt,
       },
@@ -74,7 +74,7 @@ const assets = [
       {
         id: 'legacy-account',
         kind: 'wechat-legacy',
-        label: '微信旧版账号 · 0003',
+        label: '旧版微信账号 · 0003',
         accountId: 'account-c',
         importedAt,
       },

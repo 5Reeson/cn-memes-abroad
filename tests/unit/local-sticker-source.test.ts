@@ -211,7 +211,7 @@ describe('LocalStickerSource', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-account-a',
-        sourceLabel: '微信 4.x 账号 · 0001',
+        sourceLabel: '新版微信账号 · 0001',
       },
     )
     const second = await importer.importAttributed(
@@ -219,7 +219,7 @@ describe('LocalStickerSource', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-account-b',
-        sourceLabel: '微信 4.x 账号 · 0002',
+        sourceLabel: '新版微信账号 · 0002',
       },
     )
 

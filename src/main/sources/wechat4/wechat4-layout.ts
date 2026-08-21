@@ -138,7 +138,7 @@ async function discoverInternal(
       ])
       accounts.push({
         id: accountId(entry.name),
-        label: `微信 4.x 账号 · ${entry.name.slice(-4)}`,
+        label: `新版微信账号 ${entry.name.slice(-4)}`,
         databaseBytes: Number(database.size),
         walPresent: wal !== null,
         shmPresent: shm !== null,
@@ -152,7 +152,7 @@ async function discoverInternal(
           rootFound: true,
           permissionDenied: true,
           accounts: [],
-          failures: [{ code: 'PERMISSION_DENIED', message: '没有读取微信 4.x 账号数据的权限' }],
+          failures: [{ code: 'PERMISSION_DENIED', message: '没有读取新版微信账号数据的权限' }],
         }
       }
     }
@@ -229,7 +229,7 @@ export async function resolveWechat4EmoticonCaches(
   }
   const discovery = await discoverInternal(root, { inspectKeyMetadata: false })
   const account = discovery.accounts.find((candidate) => candidate.id === accountIdToResolve)
-  if (!account) throw new Error('选择的微信 4.x 账号已不可用')
+  if (!account) throw new Error('选择的新版微信账号已不可用')
 
   const base = join(account.accountDirectory, 'business', 'emoticon')
   const resolved = new Map<string, Wechat4EmoticonCachePaths>()
@@ -325,7 +325,7 @@ export async function snapshotWechat4Database(
     inspectKeyMetadata: false,
   })
   const account = discovery.accounts.find((candidate) => candidate.id === accountIdToSnapshot)
-  if (!account) throw new Error('选择的微信 4.x 账号或数据库已不可用')
+  if (!account) throw new Error('选择的新版微信账号或数据库已不可用')
 
   for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
     const snapshot = await copySnapshotAttempt(

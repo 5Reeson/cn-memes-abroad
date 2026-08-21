@@ -150,7 +150,7 @@ describe('ManifestStore', () => {
       {
         id: expect.stringMatching(/^source-[a-f0-9]{24}$/),
         kind: 'wechat4',
-        label: '微信 4.x 账号 · beef',
+        label: '新版微信账号 · beef',
         accountId: 'wechat4-deadbeefdeadbeef',
         importedAt: '2026-08-08T01:00:00.000Z',
       },
@@ -169,14 +169,14 @@ describe('ManifestStore', () => {
         {
           id: 'source-account-a',
           kind: 'wechat4' as const,
-          label: '微信 4.x 账号 · 0001',
+          label: '新版微信账号 · 0001',
           accountId: 'wechat4-aaaaaaaaaaaaaaaa',
           importedAt: '2026-08-08T01:00:00.000Z',
         },
         {
           id: 'source-account-b',
           kind: 'wechat4' as const,
-          label: '微信 4.x 账号 · 0002',
+          label: '新版微信账号 · 0002',
           accountId: 'wechat4-bbbbbbbbbbbbbbbb',
           importedAt: '2026-08-08T02:00:00.000Z',
         },

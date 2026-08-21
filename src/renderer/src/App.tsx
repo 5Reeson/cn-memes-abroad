@@ -5,7 +5,6 @@ import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircl
 import { EyeIcon as Eye } from '@phosphor-icons/react/Eye'
 import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
-import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { LinkIcon as Link } from '@phosphor-icons/react/Link'
 import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
 import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
@@ -37,6 +36,7 @@ import {
   whatsAppConnectionLabel,
 } from '../../shared/whatsapp-connection.js'
 import { AppShell, type AppPage } from './components/AppShell.js'
+import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
 import { PathDisplay } from './components/PathDisplay.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerPicker } from './components/StickerPicker.js'
@@ -44,8 +44,7 @@ import { useProgressiveCount } from './components/useProgressiveCount.js'
 import { WhatsAppConnectionPanel } from './components/WhatsAppConnectionPanel.js'
 import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
-import { Wechat4Panel } from './Wechat4Panel.js'
-import { WechatLegacyPanel } from './WechatLegacyPanel.js'
+import { WechatImportPanel } from './WechatImportPanel.js'
 
 const EMPTY_LIBRARY_WARNING = '我的表情库目前为空。请先从微信或本地导入表情。'
 
@@ -103,8 +102,7 @@ export function App() {
   const [failures, setFailures] = useState<ImportFailure[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [wechat4Open, setWechat4Open] = useState(false)
-  const [legacyOpen, setLegacyOpen] = useState(false)
+  const [wechatOpen, setWechatOpen] = useState(false)
 
   useEffect(() => {
     const api = window.stickerApp
@@ -163,8 +161,7 @@ export function App() {
     const api = window.stickerApp
     if (!current || !api) return
     if (patch.currentStep !== undefined && patch.currentStep !== 1) {
-      setWechat4Open(false)
-      setLegacyOpen(false)
+      setWechatOpen(false)
     }
     const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
     taskRef.current = next
@@ -193,14 +190,12 @@ export function App() {
   }
 
   function navigate(nextPage: AppPage) {
-    setWechat4Open(false)
-    setLegacyOpen(false)
+    setWechatOpen(false)
     setPage(nextPage)
   }
 
   function dismissWechatPanels() {
-    setWechat4Open(false)
-    setLegacyOpen(false)
+    setWechatOpen(false)
   }
 
   async function importAssets(mode: ImportMode) {
@@ -442,27 +437,14 @@ export function App() {
         onTask={updateTask}
         onStep={moveToStep}
         onLocalImport={importAssets}
-        onWechat4={() => {
-          setLegacyOpen(false)
-          setWechat4Open(true)
-        }}
-        onLegacy={() => {
-          setWechat4Open(false)
-          setLegacyOpen(true)
-        }}
+        onWechat={() => setWechatOpen(true)}
         onDismissWechat={dismissWechatPanels}
         wechatPanel={
-          wechat4Open ? (
-            <Wechat4Panel
-              onClose={() => setWechat4Open(false)}
+          wechatOpen ? (
+            <WechatImportPanel
+              onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
               onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
-            />
-          ) : legacyOpen ? (
-            <WechatLegacyPanel
-              onClose={() => setLegacyOpen(false)}
-              onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止微信旧版导入。')}
             />
           ) : null
         }
@@ -492,11 +474,11 @@ export function App() {
         onOrder={async (ids) => setCollection(await window.stickerApp!.reorderAssets(ids))}
         onDelete={removeAssets}
         onLocalImport={importAssets}
-        onWechat4={() => setWechat4Open(true)}
+        onWechat={() => setWechatOpen(true)}
         wechatPanel={
-          wechat4Open ? (
-            <Wechat4Panel
-              onClose={() => setWechat4Open(false)}
+          wechatOpen ? (
+            <WechatImportPanel
+              onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
               onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
             />
@@ -515,11 +497,11 @@ export function App() {
         connection={whatsApp}
         onError={setError}
         onStatus={setWhatsApp}
-        onWechat4={() => setWechat4Open(true)}
+        onWechat={() => setWechatOpen(true)}
         wechatPanel={
-          wechat4Open ? (
-            <Wechat4Panel
-              onClose={() => setWechat4Open(false)}
+          wechatOpen ? (
+            <WechatImportPanel
+              onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
               onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
             />
@@ -599,8 +581,7 @@ interface ExportPageProps {
   onTask(patch: Partial<ExportTaskDraft>): void
   onStep(step: ExportTask['currentStep']): void
   onLocalImport(mode: ImportMode): void
-  onWechat4(): void
-  onLegacy(): void
+  onWechat(): void
   onDismissWechat(): void
   wechatPanel: React.ReactNode
   onChooseLocalDestination(): void
@@ -685,7 +666,6 @@ function WorkflowStepWithFooter({
 }
 
 function SourceStep(props: ExportPageProps) {
-  const versionInfoId = useId()
   const initialFocus = props.task.source?.kind.startsWith('wechat')
     ? 'wechat'
     : props.task.source?.kind === 'local'
@@ -725,40 +705,16 @@ function SourceStep(props: ExportPageProps) {
             <p>选择一个微信账号，导入收藏的表情</p>
             <small>微信账号已加密，任何微信数据都不会被修改或上传</small>
           </div>
-          <div className="choice-version-info">
-            <button
-              className="choice-info-button"
-              type="button"
-              aria-label="查看新旧版微信区别"
-              aria-describedby={versionInfoId}
-            >
-              <Info size={17} />
-            </button>
-            <span id={versionInfoId} className="choice-info-tooltip" role="tooltip">
-              新版微信指微信 4.x 系列版本，首次使用时需要您关闭微信
-              app，在微信重新启动后完成扫码登录；旧版微信无需此流程。
-            </span>
-          </div>
           <div className="choice-actions">
             <button
               className="secondary-button"
               type="button"
               onClick={() => {
                 setFocusedSource('wechat')
-                props.onWechat4()
+                props.onWechat()
               }}
             >
-              新版微信
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => {
-                setFocusedSource('wechat')
-                props.onLegacy()
-              }}
-            >
-              旧版微信
+              选择账号
             </button>
           </div>
         </section>
@@ -1354,24 +1310,18 @@ function TransferStep(props: ExportPageProps) {
 }
 
 function PackRulesNotice() {
-  const [visible, setVisible] = useState(true)
-  if (!visible) return null
   return (
-    <aside className="pack-rules-notice" aria-label="WhatsApp 分包规则">
-      <Info size={18} />
-      <div>
-        <strong>WhatsApp 分包规则</strong>
-        <ul>
-          <li>
-            每个包必须包含 3-30 张图片。数量或余数发生冲突时，系统会自动选择最合适的分包方式。
-          </li>
-          <li>动图和静态表情必须放在不同的包里，系统会自动分开。</li>
-        </ul>
-      </div>
-      <button type="button" aria-label="关闭分包规则提示" onClick={() => setVisible(false)}>
-        <X size={16} />
-      </button>
-    </aside>
+    <DismissibleInfoNotice
+      title="WhatsApp 分包规则"
+      ariaLabel="WhatsApp 分包规则"
+      closeLabel="关闭分包规则提示"
+      className="pack-rules-notice"
+    >
+      <ul>
+        <li>每个包必须包含 3-30 张图片。数量或余数发生冲突时，系统会自动选择最合适的分包方式。</li>
+        <li>动图和静态表情必须放在不同的包里，系统会自动分开。</li>
+      </ul>
+    </DismissibleInfoNotice>
   )
 }
 
@@ -1691,7 +1641,7 @@ function LibraryPage({
   onOrder,
   onDelete,
   onLocalImport,
-  onWechat4,
+  onWechat,
   wechatPanel,
 }: {
   collection: CollectionView
@@ -1699,7 +1649,7 @@ function LibraryPage({
   onOrder(ids: string[]): void
   onDelete(ids: string[]): void
   onLocalImport(mode: ImportMode): void
-  onWechat4(): void
+  onWechat(): void
   wechatPanel: React.ReactNode
 }) {
   return (
@@ -1709,7 +1659,7 @@ function LibraryPage({
         description="浏览、管理所有已经导入本应用的表情包素材。单击可查看文件名、预览、复制、删除。支持框选及拖拽排序。"
         aside={
           <div className="heading-actions">
-            <button className="secondary-button" type="button" onClick={onWechat4}>
+            <button className="secondary-button" type="button" onClick={onWechat}>
               <WechatLogo size={16} />
               微信导入
             </button>
@@ -1748,13 +1698,13 @@ function ConnectionsPage({
   connection,
   onError,
   onStatus,
-  onWechat4,
+  onWechat,
   wechatPanel,
 }: {
   connection: WhatsAppConnectionView
   onError(message: string): void
   onStatus(status: WhatsAppConnectionView): void
-  onWechat4(): void
+  onWechat(): void
   wechatPanel: React.ReactNode
 }) {
   return (
@@ -1771,12 +1721,12 @@ function ConnectionsPage({
           </span>
           <div>
             <h3>微信导入访问</h3>
-            <p>微信不是永久连接。只有你点击重新授权后，才会启动临时副本或读取真实数据。</p>
+            <p>选择账号时，应用会按需请求系统授权；微信数据只在本机读取。</p>
           </div>
         </header>
         <footer>
-          <button className="secondary-button" type="button" onClick={onWechat4}>
-            查看脱敏账号与重新授权
+          <button className="secondary-button" type="button" onClick={onWechat}>
+            选择微信账号
           </button>
         </footer>
       </section>

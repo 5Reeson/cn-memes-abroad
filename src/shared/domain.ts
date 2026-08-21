@@ -270,6 +270,7 @@ export interface LegacyWechatAccountView {
 
 export interface LegacyWechatDiscoveryView {
   rootFound: boolean
+  permissionDenied: boolean
   accounts: LegacyWechatAccountView[]
   failures: string[]
 }

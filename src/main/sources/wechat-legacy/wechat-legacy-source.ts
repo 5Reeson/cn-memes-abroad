@@ -73,6 +73,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === code
+}
+
 async function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   await new Promise<void>((resolve, reject) => {
@@ -124,6 +128,7 @@ export class WechatLegacySource {
 
   private async discoverInternal(): Promise<{
     rootFound: boolean
+    permissionDenied: boolean
     accounts: LegacyWechatAccount[]
     failures: string[]
   }> {
@@ -131,10 +136,23 @@ export class WechatLegacySource {
     try {
       entries = await readdir(this.root, { withFileTypes: true })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { rootFound: false, accounts: [], failures: [] }
+      if (isNodeError(error, 'ENOENT')) {
+        return { rootFound: false, permissionDenied: false, accounts: [], failures: [] }
       }
-      return { rootFound: true, accounts: [], failures: ['无法读取微信 Legacy 数据目录'] }
+      if (isNodeError(error, 'EACCES') || isNodeError(error, 'EPERM')) {
+        return {
+          rootFound: true,
+          permissionDenied: true,
+          accounts: [],
+          failures: ['没有读取旧版微信数据目录的权限'],
+        }
+      }
+      return {
+        rootFound: true,
+        permissionDenied: false,
+        accounts: [],
+        failures: ['无法读取旧版微信数据目录'],
+      }
     }
 
     const candidates = entries
@@ -151,25 +169,34 @@ export class WechatLegacySource {
         const parsed = await readFavArchive(archivePath)
         accounts.push({
           id: accountId(entry.name),
-          label: `微信账号 · ${entry.name.slice(-4)}`,
+          label: `旧版微信账号 ${entry.name.slice(-4)}`,
           stickerCount: parsed.urls.length,
           archiveBytes: details.size,
           archivePath,
         })
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if (isNodeError(error, 'EACCES') || isNodeError(error, 'EPERM')) {
+          return {
+            rootFound: true,
+            permissionDenied: true,
+            accounts: [],
+            failures: ['没有读取旧版微信账号数据的权限'],
+          }
+        }
+        if (!isNodeError(error, 'ENOENT')) {
           failures.push(`账号 · ${entry.name.slice(-4)}：无法读取收藏索引`)
         }
       }
     }
 
-    return { rootFound: true, accounts, failures }
+    return { rootFound: true, permissionDenied: false, accounts, failures }
   }
 
   async discover(): Promise<LegacyWechatDiscoveryView> {
     const result = await this.discoverInternal()
     return {
       rootFound: result.rootFound,
+      permissionDenied: result.permissionDenied,
       accounts: result.accounts.map(({ archivePath: _archivePath, ...account }) => account),
       failures: result.failures,
     }
@@ -201,7 +228,7 @@ export class WechatLegacySource {
   ): Promise<ImportResult> {
     const discovery = await this.discoverInternal()
     const account = discovery.accounts.find((candidate) => candidate.id === request.accountId)
-    if (!account) throw new Error('选择的微信账号已不可用，请重新检测')
+    if (!account) throw new Error('选择的旧版微信账号已不可用，请重新检测')
     const parsed = await readFavArchive(account.archivePath)
     request.signal?.throwIfAborted()
     if (parsed.urls.length === 0) throw new Error('该账号的 fav.archive 中没有可下载的收藏表情')

@@ -56,7 +56,7 @@ describe('WeChat 4 layout discovery and snapshots', () => {
     expect(result).toMatchObject({ rootFound: true, permissionDenied: false, failures: [] })
     expect(result.accounts).toHaveLength(1)
     expect(result.accounts[0]).toMatchObject({
-      label: '微信 4.x 账号 · abcd',
+      label: '新版微信账号 abcd',
       walPresent: true,
       shmPresent: true,
       keyMetadataPresent: true,

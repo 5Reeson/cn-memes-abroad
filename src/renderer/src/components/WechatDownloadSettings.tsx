@@ -14,12 +14,10 @@ const SPEED_OPTIONS: Array<{ value: WechatDownloadMode; label: string }> = [
 export function WechatDownloadSettings({
   value,
   disabled,
-  cacheFirst = false,
   onChange,
 }: {
   value: WechatDownloadMode
   disabled: boolean
-  cacheFirst?: boolean
   onChange(value: WechatDownloadMode): void
 }) {
   const [showInfo, setShowInfo] = useState(false)
