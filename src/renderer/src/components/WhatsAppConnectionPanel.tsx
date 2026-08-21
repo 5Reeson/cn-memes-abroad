@@ -9,6 +9,7 @@ import type {
   WhatsAppConnectionView,
   WhatsAppCredentialMode,
 } from '../../../shared/domain.js'
+import { WhatsAppQrPreview } from './WhatsAppQrPreview.js'
 
 const initialConnection: WhatsAppConnectionView = {
   phase: 'disconnected',
@@ -45,7 +46,9 @@ export function WhatsAppConnectionPanel({
   function receiveStatus(status: WhatsAppConnectionView) {
     setConnection(status)
     onStatus?.(status)
-    if (status.phase === 'connected') setPairingMode(false)
+    if (status.phase === 'connected' || status.phase === 'awaiting-qr') {
+      setPairingMode(false)
+    }
   }
 
   useEffect(() => {
@@ -62,6 +65,7 @@ export function WhatsAppConnectionPanel({
   async function connect(phone?: string) {
     const api = window.stickerApp
     if (!api) return onError('桌面桥接不可用，请重新打开应用。')
+    setPairingMode(phone !== undefined)
     setBusy(true)
     try {
       receiveStatus(await api.connectWhatsApp(phone))
@@ -194,7 +198,7 @@ export function WhatsAppConnectionPanel({
 
       {connection.phase === 'awaiting-qr' && connection.qrDataUrl && (
         <div className="login-challenge">
-          <img src={connection.qrDataUrl} alt="WhatsApp 登录二维码" />
+          <WhatsAppQrPreview src={connection.qrDataUrl} />
           <div>
             <strong>请用手机扫描二维码</strong>
             <p>点击 WhatsApp 右下角「自己」→ 右上角二维码图标 → 扫描</p>
@@ -213,7 +217,7 @@ export function WhatsAppConnectionPanel({
         </div>
       )}
 
-      {pairingMode && !connection.hasSession && connection.phase !== 'awaiting-pairing-code' && (
+      {pairingMode && !connection.hasSession && !awaiting && (
         <div className="pairing-form">
           <label>
             <span>手机号（含国家/地区代码）</span>
@@ -237,24 +241,32 @@ export function WhatsAppConnectionPanel({
 
       <footer>
         {!connected && !awaiting && (
-          <button
-            className="primary-button"
-            type="button"
-            disabled={busy}
-            onClick={() => void connect()}
-          >
-            <DeviceMobile size={16} />
-            {connection.hasSession ? '恢复连接' : '显示二维码'}
-          </button>
-        )}
-        {!connected && !awaiting && !connection.hasSession && (
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => setPairingMode((value) => !value)}
-          >
-            使用手机号关联
-          </button>
+          <div className="connection-methods">
+            <button
+              className="primary-button connection-method-button"
+              type="button"
+              disabled={busy}
+              onClick={() => void connect()}
+            >
+              <DeviceMobile size={16} />
+              {connection.hasSession ? '恢复连接' : '扫描二维码连接'}
+            </button>
+            {!connection.hasSession && (
+              <>
+                <span className="connection-choice-or" aria-hidden="true">
+                  <strong>或</strong>
+                </span>
+                <button
+                  className="secondary-button connection-method-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPairingMode((value) => !value)}
+                >
+                  通过手机号连接
+                </button>
+              </>
+            )}
+          </div>
         )}
         {awaiting && (
           <button className="secondary-button" type="button" onClick={() => void disconnect()}>

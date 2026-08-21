@@ -1303,6 +1303,27 @@ button:disabled {
   margin-top: 16px;
 }
 
+.connection-methods {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.connection-method-button {
+  min-width: 136px;
+}
+
+.connection-choice-or {
+  margin: 0 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.connection-choice-or strong {
+  font-weight: 700;
+}
+
 .text-button {
   display: inline-flex;
   align-items: center;
@@ -1342,6 +1363,46 @@ button:disabled {
   padding: 7px;
   border-radius: 10px;
   background: #fff;
+}
+
+.login-qr-trigger {
+  position: relative;
+  display: block;
+  width: 156px;
+  height: 156px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.login-qr-trigger img {
+  width: 100%;
+  height: 100%;
+}
+
+.login-qr-trigger:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.login-qr-hover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  color: #fff;
+  background: rgb(20 20 18 / 0.42);
+  opacity: 0;
+  place-items: center;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.login-qr-trigger:hover .login-qr-hover,
+.login-qr-trigger:focus-visible .login-qr-hover {
+  opacity: 1;
 }
 
 .login-challenge strong {
@@ -2976,6 +3037,18 @@ button:disabled {
   width: 100%;
   height: min(50vh, 340px);
   object-fit: contain;
+}
+
+.preview-dialog.whatsapp-qr-preview-dialog {
+  width: min(560px, 88vw);
+  padding: 32px;
+}
+
+.preview-dialog.whatsapp-qr-preview-dialog img {
+  height: min(72vh, 520px);
+  padding: 14px;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .preview-meta {

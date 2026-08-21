@@ -18,6 +18,7 @@ import type {
   WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
+import { WhatsAppQrPreview } from './components/WhatsAppQrPreview.js'
 
 interface WhatsAppSendPanelProps {
   expectedPackCount: number
@@ -318,7 +319,7 @@ export function WhatsAppSendPanel({
 
           {connection.phase === 'awaiting-qr' && connection.qrDataUrl && (
             <div className="login-challenge">
-              <img src={connection.qrDataUrl} alt="WhatsApp 登录二维码" />
+              <WhatsAppQrPreview src={connection.qrDataUrl} />
               <div>
                 <strong>请用手机扫描二维码</strong>
                 <p>WhatsApp → 设置 → 已关联设备 → 关联设备。</p>
@@ -340,50 +341,60 @@ export function WhatsAppSendPanel({
             </div>
           )}
 
-          {pairingMode &&
-            !connection.hasSession &&
-            connection.phase !== 'awaiting-pairing-code' && (
-              <div className="pairing-form">
-                <label>
-                  <span>手机号（含国家/地区代码）</span>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="例如 85212345678"
-                    value={pairingPhone}
-                    onChange={(event) =>
-                      setPairingPhone(event.target.value.replace(/[^\d+\s-]/g, ''))
-                    }
-                  />
-                </label>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={connectionBusy || pairingPhone.replace(/\D/g, '').length < 8}
-                  onClick={() => connect(pairingPhone)}
-                >
-                  获取配对码
-                </button>
-              </div>
-            )}
+          {pairingMode && !connection.hasSession && !awaitingLogin && (
+            <div className="pairing-form">
+              <label>
+                <span>手机号（含国家/地区代码）</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="例如 85212345678"
+                  value={pairingPhone}
+                  onChange={(event) =>
+                    setPairingPhone(event.target.value.replace(/[^\d+\s-]/g, ''))
+                  }
+                />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={connectionBusy || pairingPhone.replace(/\D/g, '').length < 8}
+                onClick={() => connect(pairingPhone)}
+              >
+                获取配对码
+              </button>
+            </div>
+          )}
 
           <div className="connection-actions">
             {!awaitingLogin && (
-              <button
-                className="primary-button"
-                type="button"
-                disabled={connectionBusy}
-                onClick={() => connect()}
-              >
-                <DeviceMobile size={16} />
-                {connection.hasSession ? '恢复连接' : '显示二维码'}
-              </button>
-            )}
-            {!connection.hasSession && !pairingMode && connection.phase !== 'awaiting-qr' && (
-              <button className="text-button" type="button" onClick={() => setPairingMode(true)}>
-                使用手机号关联
-              </button>
+              <div className="connection-methods">
+                <button
+                  className="primary-button connection-method-button"
+                  type="button"
+                  disabled={connectionBusy}
+                  onClick={() => connect()}
+                >
+                  <DeviceMobile size={16} />
+                  {connection.hasSession ? '恢复连接' : '扫描二维码连接'}
+                </button>
+                {!connection.hasSession && (
+                  <>
+                    <span className="connection-choice-or" aria-hidden="true">
+                      <strong>或</strong>
+                    </span>
+                    <button
+                      className="secondary-button connection-method-button"
+                      type="button"
+                      disabled={connectionBusy}
+                      onClick={() => setPairingMode((value) => !value)}
+                    >
+                      通过手机号连接
+                    </button>
+                  </>
+                )}
+              </div>
             )}
             {awaitingLogin && (
               <button className="text-button" type="button" onClick={disconnect}>
