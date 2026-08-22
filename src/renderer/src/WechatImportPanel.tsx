@@ -4,7 +4,6 @@ import { ArrowClockwiseIcon as ArrowClockwise } from '@phosphor-icons/react/Arro
 import { CheckIcon as Check } from '@phosphor-icons/react/Check'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { DownloadSimpleIcon as DownloadSimple } from '@phosphor-icons/react/DownloadSimple'
-import { EyeIcon as Eye } from '@phosphor-icons/react/Eye'
 import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
 import { WarningIcon as Warning } from '@phosphor-icons/react/Warning'
@@ -678,11 +677,12 @@ export function WechatImportPanel({
                       ? activeTask
                       : null
                   const preview = accountPreviews[accountKey(item)]
+                  const hasPreview = Boolean(preview?.assets.length)
                   const awaitingConsent =
                     item.kind === 'current' && pendingAction?.account.id === item.account.id
                   return (
                     <Fragment key={accountKey(item)}>
-                      <article>
+                      <article className={hasPreview ? 'has-preview' : 'without-preview'}>
                         <div className="wechat-account-meta">
                           <strong>{item.account.label}</strong>
                           <span>
@@ -691,30 +691,42 @@ export function WechatImportPanel({
                               : `${item.account.stickerCount} 张收藏表情`}
                           </span>
                         </div>
-                        {preview?.assets.length ? (
-                          <div className="wechat-account-preview-strip" aria-label="账户表情预览">
-                            {preview.assets.map((asset) => (
-                              <button
-                                type="button"
-                                key={asset.id}
-                                title={`预览 ${asset.displayName}`}
-                                aria-label={`预览 ${asset.displayName}`}
-                                onClick={() => setPreviewAsset(asset)}
-                              >
-                                <ProgressiveImage src={asset.previewUrl} alt="" eager />
-                              </button>
-                            ))}
-                          </div>
+                        {hasPreview ? (
+                          <>
+                            <div className="wechat-account-preview-label">
+                              <span className="prepared-group-status is-ready">账号预览</span>
+                            </div>
+                            <div className="wechat-account-preview-strip" aria-label="账户表情预览">
+                              {preview?.assets.map((asset) => (
+                                <button
+                                  type="button"
+                                  key={asset.id}
+                                  title={`预览 ${asset.displayName}`}
+                                  aria-label={`预览 ${asset.displayName}`}
+                                  onClick={() => setPreviewAsset(asset)}
+                                >
+                                  <ProgressiveImage src={asset.previewUrl} alt="" eager />
+                                </button>
+                              ))}
+                            </div>
+                          </>
                         ) : null}
                         <div className="wechat-account-actions">
                           <button
                             type="button"
                             className="secondary-button"
                             disabled={busy}
+                            aria-busy={taskForAccount?.action === 'preview'}
+                            title={
+                              hasPreview ? '重新读取最多 5 张缓存图片' : '读取最多 5 张缓存图片'
+                            }
                             onClick={() => selectAccount(item, 'preview')}
                           >
-                            <Eye size={16} />
-                            {taskForAccount?.action === 'preview' ? '下载中...' : '预览5张'}
+                            {taskForAccount?.action === 'preview'
+                              ? '更新中...'
+                              : hasPreview
+                                ? '更新预览'
+                                : '生成预览'}
                           </button>
                           <button
                             type="button"
