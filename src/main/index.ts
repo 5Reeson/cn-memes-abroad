@@ -1787,7 +1787,7 @@ function createWindow(): void {
     minWidth: 760,
     minHeight: 620,
     show: false,
-    title: 'CN Memes Abroad',
+    title: '图渡',
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f7f7f5',
     webPreferences: {

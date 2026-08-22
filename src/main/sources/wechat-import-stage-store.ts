@@ -80,7 +80,7 @@ export class WechatImportStageStore {
     const seed = createDefaultCollection({
       id: stageKey(kind, accountId),
       title: '微信导入暂存',
-      publisher: 'CN Memes Abroad',
+      publisher: '图渡',
       packSize: 30,
       assets: [],
       selectedAssetIds: [],

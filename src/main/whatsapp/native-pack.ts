@@ -97,7 +97,7 @@ export async function sendPreparedStickerPack(
     stickerPackId: `com.cn-memes-abroad.${pack.id}`,
     name: pack.name,
     publisher: pack.publisher,
-    packDescription: 'Created locally with CN Memes Abroad.',
+    packDescription: 'Created locally with 图渡.',
     stickerPackOrigin: proto.Message.StickerPackMessage.StickerPackOrigin.USER_CREATED,
     stickerPackSize: zip.length,
     stickers: stickerFiles.map(({ fileName }, index) => ({

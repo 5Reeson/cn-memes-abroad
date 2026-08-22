@@ -1824,7 +1824,7 @@ function AboutPage() {
     <div className="page-workspace narrow-page about-page">
       <StepHeading
         title="关于与安全"
-        description="梗出海是一款本地优先的 macOS 表情整理与传输工具。"
+        description="图渡是一款本地优先的 macOS 表情整理与传输工具。"
       />
       <section>
         <h3>微信数据怎么读取？</h3>

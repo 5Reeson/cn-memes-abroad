@@ -30,12 +30,9 @@ export function AppShell({
     <div className={`product-shell${rail ? ' has-rail' : ''}`}>
       <div className="window-drag-region" aria-hidden="true" />
       <aside className="product-sidebar">
-        <div className="product-brand" aria-label="Memes Abroad">
-          <span>
-            梗<br />
-            出海
-          </span>
-          <strong>Memes Abroad</strong>
+        <div className="product-brand" aria-label="图渡">
+          <span>图渡</span>
+          <strong>图渡</strong>
         </div>
         <nav aria-label="主导航">
           {items.map(({ id, label, icon: Icon }) => (

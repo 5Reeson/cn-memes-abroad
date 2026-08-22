@@ -76,7 +76,7 @@
   },
   "build": {
     "appId": "com.cnmemesabroad.desktop",
-    "productName": "CN Memes Abroad",
+    "productName": "图渡",
     "asar": true,
     "artifactName": "${name}-${version}-${arch}.${ext}",
     "files": [

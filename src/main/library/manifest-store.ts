@@ -260,7 +260,7 @@ export function createDefaultCollection(
     schemaVersion: CURRENT_SCHEMA_VERSION,
     id: 'default',
     title: '我的贴纸',
-    publisher: 'CN Memes Abroad',
+    publisher: '图渡',
     packSize: 30,
     assets: [],
     selectedAssetIds: [],

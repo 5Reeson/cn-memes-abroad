@@ -62,10 +62,6 @@ export class ExportTaskStore {
   async load(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
     if (primary.kind === 'valid') {
-      if (primary.normalized) {
-        await this.copyAtomically(this.path, this.backupPath)
-        await this.writeAtomically(this.path, serialize(primary.task))
-      }
       return primary.task
     }
     if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
@@ -95,10 +91,6 @@ export class ExportTaskStore {
   async loadOrCreate(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
     if (primary.kind === 'valid') {
-      if (primary.normalized) {
-        await this.copyAtomically(this.path, this.backupPath)
-        await this.writeAtomically(this.path, serialize(primary.task))
-      }
       return primary.task
     }
     if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
@@ -126,9 +118,8 @@ export class ExportTaskStore {
     assertExportTask(task)
     const current = await this.loadOrCreate()
     const timestamp = this.now().toISOString()
-    const normalized = normalizeWechatTaskSourceLabel(task).task
     const candidate: ExportTask = {
-      ...normalized,
+      ...task,
       schemaVersion: CURRENT_EXPORT_TASK_SCHEMA_VERSION,
       id: current.id,
       createdAt: current.createdAt,
@@ -208,8 +199,7 @@ export class ExportTaskStore {
         return { kind: 'legacy', task: parsed }
       }
       assertExportTask(parsed)
-      const normalized = normalizeWechatTaskSourceLabel(parsed)
-      return { kind: 'valid', task: normalized.task, normalized: normalized.changed }
+      return { kind: 'valid', task: parsed }
     } catch (error) {
       return { kind: 'invalid', error }
     }
@@ -268,7 +258,7 @@ export function createDefaultExportTask(now = new Date(), id: string = randomUUI
     currentStep: 1,
     selectedAssetIds: [],
     orderedAssetIds: [],
-    whatsapp: { title: '我的表情', publisher: 'CN Memes Abroad', packSize: 30 },
+    whatsapp: { title: '我的表情', publisher: '图渡', packSize: 30 },
     localFolder: {
       batchName: '本地导出',
       format: 'original',
@@ -446,7 +436,7 @@ function temporaryPathFor(path: string): string {
 }
 
 type ReadResult =
-  | { kind: 'valid'; task: ExportTask; normalized: boolean }
+  | { kind: 'valid'; task: ExportTask }
   | { kind: 'legacy'; task: ExportTaskV1 }
   | { kind: 'missing' }
   | { kind: 'invalid'; error: unknown }
@@ -482,28 +472,11 @@ function assertV1ExportTask(value: unknown): asserts value is ExportTaskV1 {
 }
 
 function migrateV1Task(task: ExportTaskV1): ExportTask {
-  return normalizeWechatTaskSourceLabel({
+  return {
     ...task,
     schemaVersion: CURRENT_EXPORT_TASK_SCHEMA_VERSION,
     localFolder: { ...task.localFolder, batchName: '本地导出' },
-  }).task
-}
-
-function normalizeWechatTaskSourceLabel(task: ExportTask): {
-  task: ExportTask
-  changed: boolean
-} {
-  const source = task.source
-  if (!source || source.kind === 'library' || source.kind === 'local') {
-    return { task, changed: false }
   }
-  const label =
-    source.kind === 'wechat4'
-      ? source.label.replace(/^微信\s*4\.x\s*账号/, '新版微信账号')
-      : source.label.replace(/^微信旧版账号/, '旧版微信账号').replace(/^微信账号/, '旧版微信账号')
-  return label === source.label
-    ? { task, changed: false }
-    : { task: { ...task, source: { ...source, label } }, changed: true }
 }
 
 function preparationInputsChanged(current: ExportTask, draft: ExportTaskDraft): boolean {

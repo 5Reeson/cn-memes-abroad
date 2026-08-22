@@ -1,4 +1,4 @@
-# cn-memes-abroad
+# 图渡
 
 让中文互联网的表情包跟着留子们一起出海 - 支持从微信提取、整理并转换表情包，迁移到 WhatsApp 及更多聊天平台的开源桌面端应用
 
@@ -32,7 +32,7 @@ Helping Chinese memes travel abroad with their people - an open-source desktop a
 先尝试打开一次；如果 macOS 阻止启动：
 
 1. 打开“系统设置” → “隐私与安全性”。
-2. 滚动到“安全性”，找到刚刚被阻止的 CN Memes Abroad。
+2. 滚动到“安全性”，找到刚刚被阻止的图渡。
 3. 点击“仍要打开”，在再次出现的确认框中选择“打开”。
 
 这个例外只针对当前 App。不要关闭系统 Gatekeeper，也不要执行来源不明、要求移除整个系统安全

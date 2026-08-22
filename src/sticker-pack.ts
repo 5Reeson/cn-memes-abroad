@@ -142,8 +142,8 @@ export async function sendNativeStickerPack(
 
   const stickerPackMessage = proto.Message.StickerPackMessage.create({
     stickerPackId: 'com.cn-memes-abroad.phase0',
-    name: 'CN Memes Abroad · Phase 0',
-    publisher: 'cn-memes-abroad',
+    name: '图渡 · Phase 0',
+    publisher: '图渡',
     packDescription: 'Three static WebP fixtures for the native pack protocol spike.',
     stickerPackOrigin: proto.Message.StickerPackMessage.StickerPackOrigin.USER_CREATED,
     stickerPackSize: pack.zip.length,
