@@ -30,6 +30,11 @@
     "phase7:gate-g": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/run-wechat4-gate-g.ts",
     "phase7:lifecycle:test": "npm run phase7:helper:build && node --import tsx scripts/test-wechat4-lifecycle.ts",
     "phase7:app-copy:test": "node --import tsx scripts/test-wechat4-app-copy.ts",
+    "phase8:store-instrumentation:build": "sh native/wechat4-store-instrumentation/build.sh",
+    "phase8:store-instrumentation:test": "npm run phase8:store-instrumentation:build && node --import tsx scripts/test-wechat4-store-instrumentation.ts",
+    "phase8:store-gate-8:preflight": "npm run phase7:helper:build && npm run phase8:store-instrumentation:build && NODE_OPTIONS=--import=tsx electron scripts/run-wechat4-store-gate-8.ts --preflight",
+    "phase8:store-gate-8": "npm run phase7:helper:build && npm run phase8:store-instrumentation:build && NODE_OPTIONS=--import=tsx electron scripts/run-wechat4-store-gate-8.ts",
+    "phase8:official:smoke": "NODE_OPTIONS=--import=tsx electron scripts/smoke-wechat4-official-stager.ts",
     "postinstall": "patch-package"
   },
   "engines": {

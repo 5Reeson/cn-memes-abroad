@@ -11,6 +11,10 @@ import {
   parseWechat4PersonalEmoticonCatalog,
   type Wechat4PersonalEmoticon,
 } from './personal-emoticon-catalog.js'
+import {
+  parseWechat4StoreEmoticonCatalog,
+  type Wechat4StoreEmoticon,
+} from './store-emoticon-catalog.js'
 
 const MAX_CATALOG_BYTES = 16 * 1024 * 1024
 
@@ -210,6 +214,37 @@ export async function runWechat4HelperForPersonalEmoticons(
     catalog = result.catalog
     if (!catalog) throw new Error('WeChat 4 helper catalog pipe returned no data')
     const records = result.response.ok ? parseWechat4PersonalEmoticonCatalog(catalog) : []
+    return { response: result.response, records }
+  } finally {
+    candidateFrame.fill(0)
+    catalog?.fill(0)
+  }
+}
+
+export interface Wechat4StoreEmoticonHelperResult {
+  response: Wechat4HelperResponse
+  records: Wechat4StoreEmoticon[]
+}
+
+/** fd 3 carries the candidate frame; store container ranges return only over anonymous fd 4. */
+export async function runWechat4HelperForStoreEmoticons(
+  request: Wechat4HelperRequest & { method: 'storeEmoticonsFd' },
+  candidateFrame: Buffer,
+  options: Wechat4HelperRunnerOptions,
+): Promise<Wechat4StoreEmoticonHelperResult> {
+  let catalog: Buffer | undefined
+  try {
+    if (candidateFrame.length !== 56) {
+      throw new Error('WeChat 4 candidate frame must be exactly 56 bytes')
+    }
+    const result = await runHelper(request, {
+      ...options,
+      candidateFrame,
+      collectCatalog: true,
+    })
+    catalog = result.catalog
+    if (!catalog) throw new Error('WeChat 4 helper catalog pipe returned no data')
+    const records = result.response.ok ? parseWechat4StoreEmoticonCatalog(catalog) : []
     return { response: result.response, records }
   } finally {
     candidateFrame.fill(0)

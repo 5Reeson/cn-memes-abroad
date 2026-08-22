@@ -364,4 +364,79 @@ describe('Wechat4StickerSource', () => {
     encryptedDownload.fill(0)
     encryptedCache.fill(0)
   })
+
+  it('imports locally staged official packs even when the personal catalog is empty', async () => {
+    const setup = await fixture()
+    const officialPng = await sharp({
+      create: { width: 11, height: 9, channels: 4, background: '#663399ff' },
+    })
+      .png()
+      .toBuffer()
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [] },
+      officialStager: {
+        stage: async ({ stagingDirectory }) => {
+          const path = join(stagingDirectory, 'official.asset')
+          await writeFile(path, officialPng)
+          return [{ path, label: '微信官方表情包 01 · 001' }]
+        },
+      },
+    })
+
+    const result = await source.import({
+      accountId: setup.accountId,
+      collection: createDefaultCollection(undefined),
+      collectionDirectory: setup.collectionDirectory,
+    })
+
+    expect(result.assets).toHaveLength(1)
+    expect(result.assets[0]?.displayName).toBe('微信官方表情包 01 · 001')
+    expect(result.assets[0]?.sources[0]?.kind).toBe('wechat4')
+    expect(result.failures).toEqual([])
+    officialPng.fill(0)
+  })
+
+  it('keeps personal imports usable when official-pack staging fails', async () => {
+    const setup = await fixture()
+    const personalPng = await sharp({
+      create: { width: 10, height: 8, channels: 4, background: '#228833ff' },
+    })
+      .png()
+      .toBuffer()
+    const personalMd5 = createHash('md5').update(personalPng).digest('hex')
+    const cacheRoot = join(
+      setup.root,
+      'wxid_synthetic_source_abcd',
+      'business',
+      'emoticon',
+      'Persist',
+      personalMd5.slice(0, 2),
+    )
+    await mkdir(cacheRoot, { recursive: true })
+    await writeFile(join(cacheRoot, personalMd5), personalPng)
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [record(0, personalMd5)] },
+      officialStager: { stage: async () => Promise.reject(new Error('sensitive detail')) },
+    })
+
+    const result = await source.import({
+      accountId: setup.accountId,
+      collection: createDefaultCollection(undefined),
+      collectionDirectory: setup.collectionDirectory,
+    })
+
+    expect(result.assets).toHaveLength(1)
+    expect(result.failures).toEqual([
+      {
+        path: '微信官方表情包',
+        reason: '本地官方表情读取失败；收藏和自定义表情不受影响',
+      },
+    ])
+    expect(JSON.stringify(result)).not.toContain('sensitive detail')
+    personalPng.fill(0)
+  })
 })

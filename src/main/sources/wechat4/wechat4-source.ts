@@ -26,7 +26,13 @@ import {
   type AcquireWechat4Candidate,
   type Wechat4PersonalEmoticonReader,
 } from './personal-emoticon-reader.js'
+import {
+  HelperWechat4StoreEmoticonCatalogReader,
+  LocalWechat4OfficialEmoticonStager,
+  type Wechat4OfficialEmoticonStager,
+} from './store-emoticon-reader.js'
 import { Wechat4KeyStore } from './wechat4-key-store.js'
+import { Wechat4StoreKeyStore } from './wechat4-store-key-store.js'
 import {
   DEFAULT_WECHAT4_ROOT,
   discoverWechat4,
@@ -51,6 +57,7 @@ export interface Wechat4ImportRequest {
 
 export interface Wechat4SourceOptions {
   catalogReader: Wechat4PersonalEmoticonReader
+  officialStager?: Wechat4OfficialEmoticonStager
   root?: string
   fetcher?: typeof fetch
   temporaryParent?: string
@@ -76,8 +83,18 @@ export function createProductWechat4StickerSource(
     candidateStore,
     acquireCandidate: options.acquireCandidate,
   })
+  const officialCatalogReader = new HelperWechat4StoreEmoticonCatalogReader({
+    helper: options.helper,
+    candidateStore,
+  })
+  const officialStager = new LocalWechat4OfficialEmoticonStager({
+    catalogReader: officialCatalogReader,
+    keyStore: new Wechat4StoreKeyStore(options.keyStoreDirectory),
+    ...(options.root === undefined ? {} : { root: options.root }),
+  })
   return new Wechat4StickerSource({
     catalogReader,
+    officialStager,
     ...(options.root === undefined ? {} : { root: options.root }),
     ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
     ...(options.temporaryParent === undefined ? {} : { temporaryParent: options.temporaryParent }),
@@ -524,8 +541,6 @@ export class Wechat4StickerSource {
       })
       if (request.maxItems !== undefined) records = records.slice(0, request.maxItems)
       request.signal?.throwIfAborted()
-      if (records.length === 0) throw new Error('该账号没有可导入的收藏或自定义表情')
-
       let cachePaths = await resolveWechat4EmoticonCaches(
         request.accountId,
         records.map((record) => record.md5),
@@ -560,7 +575,6 @@ export class Wechat4StickerSource {
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         })
         if (request.maxItems !== undefined) records = records.slice(0, request.maxItems)
-        if (records.length === 0) throw new Error('该账号没有可导入的收藏或自定义表情')
         cachePaths = await resolveWechat4EmoticonCaches(
           request.accountId,
           records.map((record) => record.md5),
@@ -577,17 +591,43 @@ export class Wechat4StickerSource {
       const resolvedInputs = new Array<string | undefined>(records.length)
       const labels = new Map<string, string>()
       const failureByIndex = new Array<ImportFailure | undefined>(records.length)
+      const officialFailures: ImportFailure[] = []
+      let officialAssets: Awaited<ReturnType<Wechat4OfficialEmoticonStager['stage']>> = []
+      const officialLimit =
+        request.maxItems === undefined ? undefined : Math.max(0, request.maxItems - records.length)
+      if (this.options.officialStager && officialLimit !== 0) {
+        try {
+          officialAssets = await this.options.officialStager.stage({
+            accountId: request.accountId,
+            snapshot,
+            stagingDirectory: activeStagingDirectory,
+            ...(officialLimit === undefined ? {} : { maxItems: officialLimit }),
+            ...(request.signal === undefined ? {} : { signal: request.signal }),
+          })
+          for (const asset of officialAssets) labels.set(asset.path, asset.label)
+        } catch (error) {
+          if (request.signal?.aborted) throw error
+          officialFailures.push({
+            path: '微信官方表情包',
+            reason: '本地官方表情读取失败；收藏和自定义表情不受影响',
+          })
+        }
+      }
+      if (records.length === 0 && officialAssets.length === 0 && officialFailures.length === 0) {
+        throw new Error('该账号没有可导入的微信表情')
+      }
       const runRemoteDownload = concurrencyLimiter(
         remoteConcurrencyForDownloadMode(request.downloadMode, this.resolutionConcurrency),
       )
-      let completed = 0
+      let completed = officialAssets.length + officialFailures.length
+      const resolutionTotal = records.length + officialAssets.length + officialFailures.length
       const report = async (currentPath?: string) => {
         await onProgress?.({
           completed,
-          total: records.length,
+          total: resolutionTotal,
           imported: 0,
           duplicates: 0,
-          failed: failureByIndex.filter(Boolean).length,
+          failed: officialFailures.length + failureByIndex.filter(Boolean).length,
           phase: 'downloading',
           ...(currentPath ? { currentPath } : {}),
         })
@@ -677,9 +717,11 @@ export class Wechat4StickerSource {
         Array.from({ length: Math.min(this.resolutionConcurrency, records.length) }, worker),
       )
       inputs.push(...resolvedInputs.filter((path): path is string => path !== undefined))
-      const resolutionFailures = failureByIndex.filter(
-        (failure): failure is ImportFailure => failure !== undefined,
-      )
+      inputs.push(...officialAssets.map((asset) => asset.path))
+      const resolutionFailures = [
+        ...failureByIndex.filter((failure): failure is ImportFailure => failure !== undefined),
+        ...officialFailures,
+      ]
 
       const imported = await this.localSource.importAttributed(
         {
@@ -698,7 +740,7 @@ export class Wechat4StickerSource {
           await onProgress?.({
             ...progress,
             completed: resolutionFailures.length + progress.completed,
-            total: records.length,
+            total: resolutionTotal,
             failed: resolutionFailures.length + progress.failed,
             phase: 'importing',
             ...(progress.currentPath
