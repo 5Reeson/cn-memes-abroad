@@ -330,7 +330,7 @@ export function App() {
         if (saveCopy) return void saveSnapshot(true)
         setNotice('已打开相同的已保存版本。')
       } else {
-        setNotice('已保留本次准备结果，可在以后预览或再次传输。')
+        setNotice('已保留本次准备结果，可在「表情分组存档」查看并再次传输')
       }
       setSnapshots(await api.listPreparedSnapshots())
       const refreshed = await api.getExportTask()
@@ -452,7 +452,6 @@ export function App() {
         collection={collection}
         task={task}
         prepared={prepared}
-        snapshots={snapshots}
         whatsApp={whatsApp}
         busy={busy}
         progress={progress}
@@ -471,10 +470,7 @@ export function App() {
         onCancelPrepare={cancelPreparation}
         onSaveSnapshot={saveSnapshot}
         onTransferLocal={transferLocal}
-        onDeleteSnapshot={deleteSnapshot}
         onDeleteAssets={removeAssets}
-        onOpenSnapshot={openSnapshot}
-        onUseSnapshot={useSnapshot}
         onError={setError}
         onWhatsAppStatus={setWhatsApp}
         onRefreshTask={() => {
@@ -572,7 +568,6 @@ interface ExportPageProps {
   collection: CollectionView
   task: ExportTask
   prepared: PrepareExportSummary | null
-  snapshots: PreparedSnapshotSummary[]
   whatsApp: WhatsAppConnectionView
   busy: boolean
   progress: ImportProgress | null
@@ -591,10 +586,7 @@ interface ExportPageProps {
   onCancelPrepare(): void
   onSaveSnapshot(forceDuplicate?: boolean): void
   onTransferLocal(): void
-  onDeleteSnapshot(id: string): void
   onDeleteAssets(ids: string[]): void | Promise<void>
-  onOpenSnapshot(id: string): void
-  onUseSnapshot(id: string): void
   onError(message: string): void
   onWhatsAppStatus(status: WhatsAppConnectionView): void
   onRefreshTask(): void
@@ -1293,15 +1285,6 @@ function TransferStep(props: ExportPageProps) {
             导出到本地文件夹
           </button>
         </div>
-      )}
-      {props.snapshots.length > 0 && (
-        <SavedResults
-          snapshots={props.snapshots}
-          onOpen={props.onOpenSnapshot}
-          onUse={props.onUseSnapshot}
-          onDelete={props.onDeleteSnapshot}
-          limit={6}
-        />
       )}
       {previewGroup && (
         <PreparedPackPreviewDialog group={previewGroup} onClose={() => setPreviewGroupId(null)} />
