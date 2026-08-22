@@ -11,10 +11,11 @@
   --text-faint: #8a8a85;
   --line: #deded9;
   --line-strong: #c9c9c3;
-  --accent: #2865d8;
-  --accent-hover: #1f55ba;
-  --accent-soft: #e8effc;
-  --accent-border: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+  --accent: #29445f;
+  --accent-hover: #20384e;
+  --accent-soft: #e8eef4;
+  --accent-border: #7892aa;
+  --workspace-selection-border: #506e86;
   --danger: #b5403e;
   --danger-soft: #faeceb;
   --warning: #8a5716;
@@ -36,9 +37,10 @@
     --text-faint: #85857f;
     --line: #383835;
     --line-strong: #4b4b46;
-    --accent: #6e9cf2;
-    --accent-hover: #82aaf4;
-    --accent-soft: #222f49;
+    --accent: #b8cde0;
+    --accent-hover: #ccdae7;
+    --accent-soft: #263440;
+    --accent-border: #7691aa;
     --danger: #ee8580;
     --danger-soft: #3c2423;
     --warning: #e2aa63;
@@ -1140,13 +1142,13 @@ button:disabled {
 }
 
 .wechat-album-card.is-selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .wechat-album-card.is-box-target {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 68%, transparent);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-border) 68%, transparent);
 }
 
 .wechat-album-card.is-unavailable {
@@ -1268,7 +1270,7 @@ button:disabled {
 }
 
 .wechat-album-card-select[aria-pressed='true'] {
-  border-color: var(--accent);
+  border-color: var(--accent-border);
   color: var(--accent);
   background: var(--accent-soft);
 }
@@ -1862,7 +1864,7 @@ button:disabled {
 }
 
 .credential-mode-picker label.is-selected {
-  border-color: var(--accent);
+  border-color: var(--accent-border);
   background: color-mix(in srgb, var(--accent) 6%, var(--surface));
 }
 
@@ -2122,7 +2124,7 @@ button:disabled {
 }
 
 .target-option.is-selected {
-  border-color: var(--accent);
+  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 
@@ -2378,8 +2380,8 @@ button:disabled {
   -webkit-user-drag: none;
 }
 .sticker-tile.is-selected .sticker-preview {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 2px var(--accent-border);
 }
 .selection-button,
 .drag-handle {
@@ -2695,7 +2697,7 @@ button:disabled {
   z-index: 1;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: 10px;
   width: 100%;
   min-height: 76px;
@@ -2708,7 +2710,7 @@ button:disabled {
 }
 
 .workflow-rail li.is-current button {
-  border-color: var(--text);
+  border-color: var(--accent-border);
   color: var(--text);
 }
 
@@ -2735,9 +2737,9 @@ button:disabled {
 }
 
 .is-complete .workflow-step-number {
-  border-color: #2db85b;
+  border-color: var(--accent);
   color: #fff;
-  background: #2db85b;
+  background: var(--accent);
 }
 
 .workflow-rail button > span:nth-child(2) {
@@ -2770,7 +2772,6 @@ button:disabled {
 }
 
 .workflow-rail em {
-  padding-top: 5px;
   color: var(--text-muted);
   font-size: 10px;
   font-style: normal;
@@ -2899,10 +2900,14 @@ button:disabled {
 }
 
 .choice-row.is-featured,
-.choice-row.is-selected,
+.choice-row.is-selected {
+  border-width: 1.5px;
+  border-color: var(--workspace-selection-border);
+}
+
 .choice-row:focus,
 .choice-row:focus-within {
-  border-color: var(--text);
+  border-color: var(--accent-border);
 }
 
 .choice-row:focus-visible {
@@ -3364,9 +3369,9 @@ button:disabled {
   z-index: 4;
   top: 0;
   left: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  border: 1px solid var(--accent-border);
   border-radius: 5px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
   pointer-events: none;
 }
 
@@ -3376,8 +3381,8 @@ button:disabled {
 }
 
 .picker-tile.is-box-target {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 68%, transparent);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-border) 68%, transparent);
 }
 
 .sticker-picker .picker-preview {
@@ -3407,8 +3412,8 @@ button:disabled {
 }
 
 .picker-tile.is-selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .picker-tile.is-dragging {
@@ -4171,10 +4176,6 @@ button:disabled {
   margin-bottom: 12px;
 }
 
-.settings-page {
-  width: min(100%, 940px);
-}
-
 .settings-group {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -4578,7 +4579,7 @@ button:focus-visible .path-display[data-tooltip-placement='right'] .path-display
 }
 
 .credential-options label.is-selected {
-  border-color: var(--accent);
+  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 

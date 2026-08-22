@@ -1709,7 +1709,7 @@ function ConnectionsPage({
   wechatPanel: React.ReactNode
 }) {
   return (
-    <div className="page-workspace narrow-page">
+    <div className="page-workspace">
       <StepHeading
         title="连接到 App"
         description="管理长期连接与本机导入授权。连接配置不会变成第二条导出流程。"
@@ -1757,7 +1757,7 @@ function SettingsPage({
   onChooseDirectory(): void
 }) {
   return (
-    <div className="page-workspace narrow-page settings-page">
+    <div className="page-workspace settings-page">
       <StepHeading
         title="设置"
         description="调整本地导出与默认行为。敏感凭证请在“连接到 App”中管理。"
