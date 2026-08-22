@@ -176,7 +176,8 @@ do {
     try execute(
       database,
       "CREATE TABLE kStoreEmoticonPackageTable("
-        + "package_id_ TEXT,download_status_ INTEGER,remove_time_ INTEGER,sort_order_ INTEGER);"
+        + "package_id_ TEXT,package_name_ TEXT,download_status_ INTEGER,"
+        + "remove_time_ INTEGER,sort_order_ INTEGER);"
     )
     try execute(
       database,
@@ -212,8 +213,8 @@ do {
     try execute(
       database,
       "INSERT INTO kStoreEmoticonPackageTable VALUES"
-        + "('10000000000000000000000000000001',2,0,4),"
-        + "('10000000000000000000000000000002',2,0,5);"
+        + "('10000000000000000000000000000001','合成专辑一',2,0,4),"
+        + "('10000000000000000000000000000002','合成专辑二',2,0,5);"
     )
     try execute(
       database,

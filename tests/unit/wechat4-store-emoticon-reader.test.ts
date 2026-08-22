@@ -96,6 +96,7 @@ describe('LocalWechat4OfficialEmoticonStager', () => {
       {
         order: 0,
         packageId,
+        packageName: '合成官方专辑',
         downloadStatus: 2,
         removeTime: 0,
         md5: createHash('md5').update(images[0]!).digest('hex'),
@@ -111,6 +112,7 @@ describe('LocalWechat4OfficialEmoticonStager', () => {
       {
         order: 1,
         packageId,
+        packageName: '合成官方专辑',
         downloadStatus: 2,
         removeTime: 0,
         md5: createHash('md5').update(images[1]!).digest('hex'),
@@ -153,10 +155,7 @@ describe('LocalWechat4OfficialEmoticonStager', () => {
       snapshot: { directory: parent, databasePath: join(parent, 'snapshot.db'), sidecars: [] },
       stagingDirectory: staging,
     })
-    expect(first.map((asset) => asset.label)).toEqual([
-      '微信官方表情包 01 · 001',
-      '微信官方表情包 01 · 002',
-    ])
+    expect(first.map((asset) => asset.label)).toEqual(['合成官方专辑·001', '合成官方专辑·002'])
     expect(await readFile(first[0]!.path)).toEqual(images[0])
     expect(await readFile(first[1]!.path)).toEqual(images[1])
     expect(clearCount).toBe(1)
@@ -168,9 +167,15 @@ describe('LocalWechat4OfficialEmoticonStager', () => {
       accountId: account!.id,
       snapshot: { directory: parent, databasePath: join(parent, 'snapshot.db'), sidecars: [] },
       stagingDirectory: secondStaging,
-      maxItems: 1,
+      packageIds: [packageId],
+      maxItemsPerPackage: 1,
     })
     expect(second).toHaveLength(1)
+    expect(second[0]).toMatchObject({
+      packageId,
+      packageName: '合成官方专辑',
+      memberIndex: 0,
+    })
     expect(await readFile(second[0]!.path)).toEqual(images[0])
     expect(saveCount).toBe(1)
 

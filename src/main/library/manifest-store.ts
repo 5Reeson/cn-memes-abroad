@@ -423,6 +423,16 @@ function assertAssetSource(value: unknown): asserts value is StickerAssetSource 
   if (value.importBatchId !== undefined) {
     assertNonEmptyString(value.importBatchId, 'assets[].sources[].importBatchId')
   }
+  if (value.album !== undefined) {
+    if (!isRecord(value.album)) {
+      throw new ManifestReadError('Collection manifest assets[].sources[].album is invalid')
+    }
+    if (value.album.kind !== 'personal' && value.album.kind !== 'official') {
+      throw new ManifestReadError('Collection manifest assets[].sources[].album.kind is invalid')
+    }
+    assertNonEmptyString(value.album.id, 'assets[].sources[].album.id')
+    assertNonEmptyString(value.album.name, 'assets[].sources[].album.name')
+  }
   assertIsoTimestamp(value.importedAt, 'assets[].sources[].importedAt')
 }
 

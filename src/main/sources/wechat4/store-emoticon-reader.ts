@@ -95,6 +95,9 @@ export class HelperWechat4StoreEmoticonCatalogReader implements Wechat4StoreEmot
 export interface Wechat4OfficialStagedAsset {
   path: string
   label: string
+  packageId: string
+  packageName: string
+  memberIndex: number
 }
 
 export interface Wechat4OfficialEmoticonStageRequest {
@@ -102,6 +105,8 @@ export interface Wechat4OfficialEmoticonStageRequest {
   snapshot: Wechat4Snapshot
   stagingDirectory: string
   maxItems?: number
+  maxItemsPerPackage?: number
+  packageIds?: readonly string[]
   signal?: AbortSignal
 }
 
@@ -243,7 +248,6 @@ export class LocalWechat4OfficialEmoticonStager implements Wechat4OfficialEmotic
     const createdPaths: string[] = []
     const groups = groupedRecords(records)
     try {
-      let packageIndex = 0
       for (const [packageId, members] of groups) {
         request.signal?.throwIfAborted()
         const path = layout.containers.get(packageId)
@@ -279,7 +283,10 @@ export class LocalWechat4OfficialEmoticonStager implements Wechat4OfficialEmotic
               createdPaths.push(outputPath)
               assets.push({
                 path: outputPath,
-                label: `微信官方表情包 ${String(packageIndex + 1).padStart(2, '0')} · ${String(memberIndex + 1).padStart(3, '0')}`,
+                label: `${member.packageName}·${String(memberIndex + 1).padStart(3, '0')}`,
+                packageId,
+                packageName: member.packageName,
+                memberIndex,
               })
             }
             memberIndex += 1
@@ -287,7 +294,6 @@ export class LocalWechat4OfficialEmoticonStager implements Wechat4OfficialEmotic
         } finally {
           decrypted.fill(0)
         }
-        packageIndex += 1
       }
       return { assets, createdPaths }
     } catch (error) {
@@ -306,14 +312,39 @@ export class LocalWechat4OfficialEmoticonStager implements Wechat4OfficialEmotic
       ) {
         throw new TypeError('Invalid official-emoticon item limit')
       }
+      if (
+        request.maxItemsPerPackage !== undefined &&
+        (!Number.isSafeInteger(request.maxItemsPerPackage) || request.maxItemsPerPackage < 0)
+      ) {
+        throw new TypeError('Invalid official-emoticon per-package limit')
+      }
       records = await this.options.catalogReader.read({
         accountId: request.accountId,
         snapshot: request.snapshot,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       })
-      if (records.length === 0 || request.maxItems === 0) return []
-      const selectedRecords =
-        request.maxItems === undefined ? records : records.slice(0, request.maxItems)
+      if (records.length === 0 || request.maxItems === 0 || request.maxItemsPerPackage === 0)
+        return []
+      const requestedPackageIds = request.packageIds ? new Set(request.packageIds) : undefined
+      if (requestedPackageIds && requestedPackageIds.size !== request.packageIds!.length) {
+        throw new TypeError('Official-emoticon packages must be unique')
+      }
+      const availablePackageIds = new Set(records.map((record) => record.packageId))
+      if (
+        requestedPackageIds &&
+        [...requestedPackageIds].some((id) => !availablePackageIds.has(id))
+      ) {
+        throw new TypeError('Unknown official-emoticon package')
+      }
+      const packageCounts = new Map<string, number>()
+      let selectedRecords = records.filter((record) => {
+        if (requestedPackageIds && !requestedPackageIds.has(record.packageId)) return false
+        const count = packageCounts.get(record.packageId) ?? 0
+        packageCounts.set(record.packageId, count + 1)
+        return request.maxItemsPerPackage === undefined || count < request.maxItemsPerPackage
+      })
+      if (request.maxItems !== undefined)
+        selectedRecords = selectedRecords.slice(0, request.maxItems)
       const selected = new Set(selectedRecords.map((record) => record.order))
       const layout = await resolveWechat4StoreLayout(
         request.accountId,

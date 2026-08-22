@@ -9,7 +9,7 @@ import type {
 } from '../../shared/domain.js'
 import { createDefaultCollection, ManifestStore } from '../library/manifest-store.js'
 
-export type WechatImportStageScope = 'preview' | 'download'
+export type WechatImportStageScope = 'preview' | 'download' | 'official-covers' | 'official-preview'
 
 const ACCOUNT_IDS: Record<WechatAccountKind, RegExp> = {
   current: /^wechat4-[a-f0-9]{16}$/,

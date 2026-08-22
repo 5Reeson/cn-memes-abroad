@@ -233,6 +233,37 @@ describe('LocalStickerSource', () => {
     expect(new Set(second.sourceUpdates[0]?.sources.map((item) => item.id)).size).toBe(2)
   })
 
+  it('retains two official album sources from the same account after de-duplication', async () => {
+    const source = join(temporaryDirectory, 'same-official.png')
+    const collectionDirectory = join(temporaryDirectory, 'collection-official')
+    await sharp({ create: { width: 12, height: 12, channels: 4, background: '#775544' } })
+      .png()
+      .toFile(source)
+    const importer = new LocalStickerSource()
+    const first = await importer.importAttributed(
+      { collection: collection(), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-a',
+        sourceAlbum: { kind: 'official', id: 'album-a', name: '专辑 A' },
+      },
+    )
+    const second = await importer.importAttributed(
+      { collection: collection(first.assets), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-a',
+        sourceAlbum: { kind: 'official', id: 'album-b', name: '专辑 B' },
+      },
+    )
+
+    expect(second.sourceUpdates[0]?.sources.map((item) => item.album?.id)).toEqual([
+      'album-a',
+      'album-b',
+    ])
+    expect(new Set(second.sourceUpdates[0]?.sources.map((item) => item.id)).size).toBe(2)
+  })
+
   it('marks multi-page images as animated and records their duration', async () => {
     const animated = join(temporaryDirectory, 'animated.gif')
     const collectionDirectory = join(temporaryDirectory, 'collection')

@@ -44,7 +44,7 @@ import { useProgressiveCount } from './components/useProgressiveCount.js'
 import { WhatsAppConnectionPanel } from './components/WhatsAppConnectionPanel.js'
 import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
-import { WechatImportPanel } from './WechatImportPanel.js'
+import { createWechatImportSessionState, WechatImportPanel } from './WechatImportPanel.js'
 
 const EMPTY_LIBRARY_WARNING = '我的表情库目前为空。请先从微信或本地导入表情。'
 
@@ -103,6 +103,8 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [wechatOpen, setWechatOpen] = useState(false)
+  const [wechatSession, setWechatSession] = useState(createWechatImportSessionState)
+  const [wechatImportReady, setWechatImportReady] = useState(false)
 
   useEffect(() => {
     const api = window.stickerApp
@@ -250,10 +252,13 @@ export function App() {
       source,
       selectedAssetIds: importedIds,
       orderedAssetIds: importedIds,
-      currentStep: 2,
+      ...(sourceKind === 'wechat' ? {} : { currentStep: 2 as const }),
     })
+    if (sourceKind === 'wechat') setWechatImportReady(true)
     setNotice(
-      `已导入 ${result.imported} 张，跳过 ${result.duplicates} 张重复素材。新内容已保存到我的表情库。`,
+      `已导入 ${result.imported} 张，跳过 ${result.duplicates} 张重复素材${
+        result.failures.length > 0 ? `，${result.failures.length} 张失败` : ''
+      }。新内容已保存到我的表情库。`,
     )
   }
 
@@ -421,6 +426,24 @@ export function App() {
     }
   }
 
+  function continueAfterWechatImport() {
+    setPage('export')
+    updateTask({ currentStep: 2 })
+  }
+
+  const wechatPanel = wechatOpen ? (
+    <WechatImportPanel
+      session={wechatSession}
+      onSessionChange={setWechatSession}
+      canContinue={wechatImportReady}
+      onContinue={continueAfterWechatImport}
+      onLoadStarted={() => setWechatImportReady(false)}
+      onClose={() => setWechatOpen(false)}
+      onImported={(result) => applyImportSummary(result, 'wechat')}
+      onStopped={() => setNotice('已停止当前微信任务。')}
+    />
+  ) : null
+
   const content =
     loading || !collection || !task ? (
       <div className="product-loading">正在恢复我的表情库与导出任务…</div>
@@ -441,15 +464,7 @@ export function App() {
         onLocalImport={importAssets}
         onWechat={() => setWechatOpen(true)}
         onDismissWechat={dismissWechatPanels}
-        wechatPanel={
-          wechatOpen ? (
-            <WechatImportPanel
-              onClose={() => setWechatOpen(false)}
-              onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止当前微信任务。')}
-            />
-          ) : null
-        }
+        wechatPanel={wechatPanel}
         onChooseLocalDestination={chooseLocalDestination}
         onPrepare={prepareTask}
         prepareProgress={prepareProgress}
@@ -477,15 +492,7 @@ export function App() {
         onDelete={removeAssets}
         onLocalImport={importAssets}
         onWechat={() => setWechatOpen(true)}
-        wechatPanel={
-          wechatOpen ? (
-            <WechatImportPanel
-              onClose={() => setWechatOpen(false)}
-              onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止当前微信任务。')}
-            />
-          ) : null
-        }
+        wechatPanel={wechatPanel}
       />
     ) : page === 'archives' ? (
       <ArchivesPage
@@ -500,15 +507,7 @@ export function App() {
         onError={setError}
         onStatus={setWhatsApp}
         onWechat={() => setWechatOpen(true)}
-        wechatPanel={
-          wechatOpen ? (
-            <WechatImportPanel
-              onClose={() => setWechatOpen(false)}
-              onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止当前微信任务。')}
-            />
-          ) : null
-        }
+        wechatPanel={wechatPanel}
       />
     ) : page === 'settings' ? (
       <SettingsPage

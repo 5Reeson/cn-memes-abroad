@@ -49,6 +49,12 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.wechat4Preview, accountId, confirmed, downloadMode),
   downloadWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
     ipcRenderer.invoke(IPC_CHANNELS.wechat4Download, accountId, confirmed, downloadMode),
+  listWechat4OfficialAlbums: (accountId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbums, accountId),
+  previewWechat4OfficialAlbum: (accountId: string, packageId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbumPreview, accountId, packageId),
+  importWechat4OfficialAlbums: (accountId: string, packageIds: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbumsImport, accountId, packageIds),
   commitWechatStagedImport: (accountKind, accountId, selectedAssetIds) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.wechatStagedImportCommit,

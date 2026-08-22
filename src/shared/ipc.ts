@@ -25,6 +25,7 @@ import type {
   WhatsAppTarget,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  Wechat4OfficialAlbumListResult,
   WechatAccountKind,
   WechatAccountPreviewResult,
   WechatAccountPreviewView,
@@ -61,6 +62,9 @@ export const IPC_CHANNELS = {
   wechat4Discover: 'wechat4:discover',
   wechat4Preview: 'wechat4:preview',
   wechat4Download: 'wechat4:download',
+  wechat4OfficialAlbums: 'wechat4:official-albums',
+  wechat4OfficialAlbumPreview: 'wechat4:official-album-preview',
+  wechat4OfficialAlbumsImport: 'wechat4:official-albums-import',
   wechatStagedImportCommit: 'wechat-staged-import:commit',
   wechat4Import: 'wechat4:import',
   wechat4Cancel: 'wechat4:cancel',
@@ -132,6 +136,12 @@ export interface StickerAppApi {
     confirmed: boolean,
     downloadMode: WechatDownloadMode,
   ): Promise<WechatStageDownloadResult>
+  listWechat4OfficialAlbums(accountId: string): Promise<Wechat4OfficialAlbumListResult>
+  previewWechat4OfficialAlbum(
+    accountId: string,
+    packageId: string,
+  ): Promise<WechatAccountPreviewResult>
+  importWechat4OfficialAlbums(accountId: string, packageIds: string[]): Promise<ImportSummary>
   commitWechatStagedImport(
     accountKind: WechatAccountKind,
     accountId: string,

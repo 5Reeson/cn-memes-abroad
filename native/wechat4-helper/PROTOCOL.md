@@ -57,7 +57,7 @@ Implemented spike methods:
   environment, or logs. Stdout returns fixed validation booleans and aggregate counts only.
 - `storeEmoticonsFd`: read-only product boundary for installed official sticker packs after the
   same full validation gate. It joins `kStoreEmoticonPackageTable` to
-  `kStoreEmoticonFilesTable` and streams only the package/member identifiers, ordering/status,
+  `kStoreEmoticonFilesTable` and streams the user-facing package name, package/member identifiers, ordering/status,
   `PersistStore`/`ThumbStore` byte ranges, plus boolean remote-metadata availability over bounded
   fd 4 JSONL. Package descriptions, URLs, AES values, and row content outside that minimum catalog
   never cross the helper boundary; stdout contains only aggregate package/member counts.

@@ -10,7 +10,9 @@ import type {
   StickerCollection,
   StickerSourceKind,
   WechatDownloadMode,
+  Wechat4OfficialAlbumView,
 } from '../../../shared/domain.js'
+import { clearCandidateDatabaseKey } from './candidate-key-pipe.js'
 import {
   LocalStickerSource,
   type ImportProgressHandler,
@@ -24,13 +26,16 @@ import type { Wechat4HelperRunnerOptions } from './helper-runner.js'
 import {
   HelperWechat4PersonalEmoticonReader,
   type AcquireWechat4Candidate,
+  type Wechat4CandidateStore,
   type Wechat4PersonalEmoticonReader,
 } from './personal-emoticon-reader.js'
 import {
   HelperWechat4StoreEmoticonCatalogReader,
   LocalWechat4OfficialEmoticonStager,
+  type Wechat4StoreEmoticonCatalogReader,
   type Wechat4OfficialEmoticonStager,
 } from './store-emoticon-reader.js'
+import { clearWechat4StoreEmoticonCatalog } from './store-emoticon-catalog.js'
 import { Wechat4KeyStore } from './wechat4-key-store.js'
 import { Wechat4StoreKeyStore } from './wechat4-store-key-store.js'
 import {
@@ -38,6 +43,7 @@ import {
   discoverWechat4,
   removeWechat4Snapshot,
   resolveWechat4EmoticonCaches,
+  resolveWechat4StoreLayout,
   snapshotWechat4Database,
 } from './wechat4-layout.js'
 
@@ -57,7 +63,9 @@ export interface Wechat4ImportRequest {
 
 export interface Wechat4SourceOptions {
   catalogReader: Wechat4PersonalEmoticonReader
+  officialCatalogReader?: Wechat4StoreEmoticonCatalogReader
   officialStager?: Wechat4OfficialEmoticonStager
+  authorizationStore?: Wechat4CandidateStore
   root?: string
   fetcher?: typeof fetch
   temporaryParent?: string
@@ -94,7 +102,9 @@ export function createProductWechat4StickerSource(
   })
   return new Wechat4StickerSource({
     catalogReader,
+    officialCatalogReader,
     officialStager,
+    authorizationStore: candidateStore,
     ...(options.root === undefined ? {} : { root: options.root }),
     ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
     ...(options.temporaryParent === undefined ? {} : { temporaryParent: options.temporaryParent }),
@@ -462,6 +472,107 @@ export class Wechat4StickerSource {
     return discoverWechat4(this.root)
   }
 
+  async hasCachedAuthorization(accountId: string): Promise<boolean> {
+    if (!this.options.authorizationStore) return false
+    const candidate = await this.options.authorizationStore.load(accountId).catch(() => undefined)
+    if (!candidate) return false
+    clearCandidateDatabaseKey(candidate)
+    return true
+  }
+
+  async listOfficialAlbums(
+    accountId: string,
+    signal?: AbortSignal,
+  ): Promise<Wechat4OfficialAlbumView[]> {
+    if (!this.options.officialCatalogReader) return []
+    const snapshot = await snapshotWechat4Database(accountId, {
+      root: this.root,
+      ...(signal === undefined ? {} : { signal }),
+      temporaryParent: this.temporaryParent,
+    })
+    let records: Awaited<ReturnType<Wechat4StoreEmoticonCatalogReader['read']>> = []
+    try {
+      records = await this.options.officialCatalogReader.read({
+        accountId,
+        snapshot,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      const packageIds = [...new Set(records.map((record) => record.packageId))]
+      const layout = await resolveWechat4StoreLayout(accountId, packageIds, this.root)
+      const albums = new Map<string, Wechat4OfficialAlbumView>()
+      for (const record of records) {
+        const current = albums.get(record.packageId)
+        if (current) current.stickerCount += 1
+        else {
+          albums.set(record.packageId, {
+            packageId: record.packageId,
+            name: record.packageName,
+            stickerCount: 1,
+            cached: layout.containers.has(record.packageId),
+          })
+        }
+      }
+      return [...albums.values()]
+    } finally {
+      clearWechat4StoreEmoticonCatalog(records)
+      await removeWechat4Snapshot(snapshot)
+    }
+  }
+
+  async importOfficialAlbums(
+    request: Wechat4ImportRequest & {
+      packageIds: readonly string[]
+      maxItemsPerPackage?: number
+    },
+    onProgress?: ImportProgressHandler,
+  ): Promise<ImportResult> {
+    if (!this.options.officialStager) throw new Error('当前版本不支持官方表情专辑')
+    const snapshot = await snapshotWechat4Database(request.accountId, {
+      root: this.root,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      temporaryParent: this.temporaryParent,
+    })
+    const stagingDirectory = await mkdtemp(join(this.temporaryParent, 'cn-memes-wechat4-official-'))
+    await chmod(stagingDirectory, 0o700)
+    try {
+      const staged = await this.options.officialStager.stage({
+        accountId: request.accountId,
+        snapshot,
+        stagingDirectory,
+        packageIds: request.packageIds,
+        ...(request.maxItemsPerPackage === undefined
+          ? {}
+          : { maxItemsPerPackage: request.maxItemsPerPackage }),
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+      })
+      const byPath = new Map(staged.map((asset) => [asset.path, asset]))
+      return await this.localSource.importAttributed(
+        {
+          collection: request.collection,
+          collectionDirectory: request.collectionDirectory,
+          inputs: staged.map((asset) => asset.path),
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+        },
+        {
+          sourceKind: this.kind,
+          sourceAccountId: request.accountId,
+          sourceLabel: request.sourceLabel,
+          sourceAlbum: (path) => {
+            const asset = byPath.get(path)
+            return asset
+              ? { kind: 'official', id: asset.packageId, name: asset.packageName }
+              : undefined
+          },
+          displayName: (path) => byPath.get(path)?.label ?? basename(path),
+        },
+        onProgress,
+      )
+    } finally {
+      await rm(stagingDirectory, { recursive: true, force: true })
+      await removeWechat4Snapshot(snapshot)
+    }
+  }
+
   private async downloadCandidate(
     candidate: RemoteCandidate,
     signal?: AbortSignal,
@@ -591,43 +702,21 @@ export class Wechat4StickerSource {
       const resolvedInputs = new Array<string | undefined>(records.length)
       const labels = new Map<string, string>()
       const failureByIndex = new Array<ImportFailure | undefined>(records.length)
-      const officialFailures: ImportFailure[] = []
-      let officialAssets: Awaited<ReturnType<Wechat4OfficialEmoticonStager['stage']>> = []
-      const officialLimit =
-        request.maxItems === undefined ? undefined : Math.max(0, request.maxItems - records.length)
-      if (this.options.officialStager && officialLimit !== 0) {
-        try {
-          officialAssets = await this.options.officialStager.stage({
-            accountId: request.accountId,
-            snapshot,
-            stagingDirectory: activeStagingDirectory,
-            ...(officialLimit === undefined ? {} : { maxItems: officialLimit }),
-            ...(request.signal === undefined ? {} : { signal: request.signal }),
-          })
-          for (const asset of officialAssets) labels.set(asset.path, asset.label)
-        } catch (error) {
-          if (request.signal?.aborted) throw error
-          officialFailures.push({
-            path: '微信官方表情包',
-            reason: '本地官方表情读取失败；收藏和自定义表情不受影响',
-          })
-        }
-      }
-      if (records.length === 0 && officialAssets.length === 0 && officialFailures.length === 0) {
+      if (records.length === 0) {
         throw new Error('该账号没有可导入的微信表情')
       }
       const runRemoteDownload = concurrencyLimiter(
         remoteConcurrencyForDownloadMode(request.downloadMode, this.resolutionConcurrency),
       )
-      let completed = officialAssets.length + officialFailures.length
-      const resolutionTotal = records.length + officialAssets.length + officialFailures.length
+      let completed = 0
+      const resolutionTotal = records.length
       const report = async (currentPath?: string) => {
         await onProgress?.({
           completed,
           total: resolutionTotal,
           imported: 0,
           duplicates: 0,
-          failed: officialFailures.length + failureByIndex.filter(Boolean).length,
+          failed: failureByIndex.filter(Boolean).length,
           phase: 'downloading',
           ...(currentPath ? { currentPath } : {}),
         })
@@ -717,11 +806,9 @@ export class Wechat4StickerSource {
         Array.from({ length: Math.min(this.resolutionConcurrency, records.length) }, worker),
       )
       inputs.push(...resolvedInputs.filter((path): path is string => path !== undefined))
-      inputs.push(...officialAssets.map((asset) => asset.path))
-      const resolutionFailures = [
-        ...failureByIndex.filter((failure): failure is ImportFailure => failure !== undefined),
-        ...officialFailures,
-      ]
+      const resolutionFailures = failureByIndex.filter(
+        (failure): failure is ImportFailure => failure !== undefined,
+      )
 
       const imported = await this.localSource.importAttributed(
         {
@@ -734,6 +821,7 @@ export class Wechat4StickerSource {
           sourceKind: this.kind,
           sourceAccountId: request.accountId,
           sourceLabel: request.sourceLabel,
+          sourceAlbum: { kind: 'personal', id: 'wechat-personal', name: '个人收藏' },
           displayName: (path) => labels.get(path) ?? basename(path),
         },
         async (progress: ImportProgress) => {

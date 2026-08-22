@@ -309,6 +309,7 @@ export class WechatLegacySource {
           sourceKind: 'wechat-legacy',
           sourceAccountId: account.id,
           sourceLabel: account.label,
+          sourceAlbum: { kind: 'personal', id: 'wechat-personal', name: '个人收藏' },
           displayName: (path) => labels.get(path) ?? basename(path),
         },
         async (progress) => {

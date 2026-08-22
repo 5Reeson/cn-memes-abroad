@@ -7,6 +7,7 @@ const PACKAGE_ID = /^[a-z0-9._:-]{1,1024}$/i
 export interface Wechat4StoreEmoticon {
   order: number
   packageId: string
+  packageName: string
   downloadStatus: number
   removeTime: number
   md5: string
@@ -39,6 +40,9 @@ function parseRecord(value: unknown, expectedOrder: number): Wechat4StoreEmotico
     typeof value.packageId !== 'string' ||
     !PACKAGE_ID.test(value.packageId) ||
     Buffer.byteLength(value.packageId, 'utf8') > MAX_FIELD_BYTES ||
+    typeof value.packageName !== 'string' ||
+    value.packageName.trim().length === 0 ||
+    Buffer.byteLength(value.packageName, 'utf8') > MAX_FIELD_BYTES ||
     typeof value.md5 !== 'string' ||
     !MD5.test(value.md5) ||
     !safeInteger(value.downloadStatus) ||
@@ -93,6 +97,7 @@ export function parseWechat4StoreEmoticonCatalog(bytes: Buffer): Wechat4StoreEmo
 export function clearWechat4StoreEmoticonCatalog(records: Wechat4StoreEmoticon[]): void {
   for (const record of records) {
     record.packageId = ''
+    record.packageName = ''
     record.md5 = ''
   }
   records.length = 0

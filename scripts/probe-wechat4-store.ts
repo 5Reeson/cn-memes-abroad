@@ -284,6 +284,16 @@ async function probe(): Promise<void> {
           )
         : undefined
       snapshot = await snapshotWechat4Database(account.id)
+      const storeOverview = await runWechat4HelperWithCandidateFrame(
+        {
+          v: 1,
+          id: `store-schema-probe-${Date.now()}`,
+          method: 'schemaOverviewFd',
+          params: { databasePath: snapshot.databasePath },
+        },
+        encodeSyntheticCandidateFrame(candidate),
+        { executable: helper },
+      )
       process.stderr.write(`Store probe: account ${accountIndex + 1} catalog\n`)
       const result = await runWechat4HelperForStoreEmoticons(
         {
@@ -371,7 +381,6 @@ async function probe(): Promise<void> {
           }
         }
 
-
         if (accountRoot && localKvcommCodes.length > 0) {
           const firstPackage = [...packages.entries()].find(([packageId]) =>
             files.has(containerName(packageId)),
@@ -382,9 +391,7 @@ async function probe(): Promise<void> {
             try {
               for (const code of localKvcommCodes) {
                 for (const candidateWxid of wxidCandidates(accountRoot)) {
-                  const key = createHash('md5')
-                    .update(`${code}${candidateWxid}EMOTICON`)
-                    .digest()
+                  const key = createHash('md5').update(`${code}${candidateWxid}EMOTICON`).digest()
                   try {
                     const firstBlock = decryptEmoticonFirstBlock(firstContainer, key)
                     if (!firstBlock) continue
@@ -403,7 +410,9 @@ async function probe(): Promise<void> {
                           for (const member of members) {
                             const end = member.emoticonOffset + member.emoticonSize
                             if (end > decrypted.length) continue
-                            if (md5(decrypted.subarray(member.emoticonOffset, end)) === member.md5) {
+                            if (
+                              md5(decrypted.subarray(member.emoticonOffset, end)) === member.md5
+                            ) {
                               verified += 1
                             }
                           }
@@ -535,7 +544,6 @@ async function probe(): Promise<void> {
             }
           }
         }
-
       } finally {
         for (const bytes of cache.values()) bytes.fill(0)
         for (const bytes of thumbStoreCache.values()) bytes.fill(0)
@@ -545,6 +553,21 @@ async function probe(): Promise<void> {
         account: accountIndex + 1,
         cachedCandidate: true,
         generalCandidateValidated: generalOverview?.ok === true,
+        storePackageColumns:
+          storeOverview.ok &&
+          typeof storeOverview.result.overview === 'object' &&
+          storeOverview.result.overview !== null &&
+          Array.isArray((storeOverview.result.overview as { tables?: unknown }).tables)
+            ? ((
+                (storeOverview.result.overview as { tables: unknown }).tables as Array<{
+                  name?: unknown
+                  columns?: Array<{ name?: unknown }>
+                }>
+              )
+                .find((table) => table.name === 'kStoreEmoticonPackageTable')
+                ?.columns?.map((column) => column.name)
+                .filter((name): name is string => typeof name === 'string') ?? [])
+            : [],
         databaseRecords: result.response.result.recordCount,
         databasePackages: result.response.result.packageCount,
         containerFiles: files.size,

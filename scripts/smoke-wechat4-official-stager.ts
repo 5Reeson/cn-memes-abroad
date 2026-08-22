@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 
 import { app } from 'electron'
 
+import { createDefaultCollection } from '../src/main/library/manifest-store.js'
 import { validateLocalStickerFile } from '../src/main/library/local-sticker-source.js'
 import {
   HelperWechat4StoreEmoticonCatalogReader,
@@ -12,6 +13,7 @@ import {
 import { clearWechat4StoreEmoticonCatalog } from '../src/main/sources/wechat4/store-emoticon-catalog.js'
 import { Wechat4KeyStore } from '../src/main/sources/wechat4/wechat4-key-store.js'
 import type { Wechat4StoreKeyCache } from '../src/main/sources/wechat4/wechat4-store-key-store.js'
+import { Wechat4StickerSource } from '../src/main/sources/wechat4/wechat4-source.js'
 import {
   discoverWechat4,
   removeWechat4Snapshot,
@@ -69,9 +71,12 @@ async function smoke(): Promise<void> {
     account: number
     catalogRecords: number
     catalogPackages: number
+    namedPackages: number
     containers: number
     staged: number
     decoded: number
+    selectedPackageImported: number
+    selectedPackageFailures: number
     stageAvailable: boolean
     allDecoded: boolean
   }> = []
@@ -85,13 +90,22 @@ async function smoke(): Promise<void> {
       let decoded = 0
       let catalogRecords = 0
       let catalogPackages = 0
+      let namedPackages = 0
       let containers = 0
+      let selectedPackageImported = 0
+      let selectedPackageFailures = 0
       try {
         const records = await catalogReader.read({ accountId: account.id, snapshot })
+        let packageIds: string[] = []
         try {
           catalogRecords = records.length
-          const packageIds = [...new Set(records.map((record) => record.packageId))]
+          packageIds = [...new Set(records.map((record) => record.packageId))]
           catalogPackages = packageIds.length
+          namedPackages = new Set(
+            records
+              .filter((record) => record.packageName !== '未命名官方专辑')
+              .map((record) => record.packageId),
+          ).size
           containers = (await resolveWechat4StoreLayout(account.id, packageIds)).containers.size
         } finally {
           clearWechat4StoreEmoticonCatalog(records)
@@ -110,13 +124,35 @@ async function smoke(): Promise<void> {
             // Continue to produce anonymous decoder coverage for the complete staged set.
           }
         }
+        if (packageIds[0]) {
+          const collectionDirectory = await mkdtemp(join(tmpdir(), 'cn-memes-official-import-'))
+          try {
+            const source = new Wechat4StickerSource({
+              catalogReader: { read: async () => [] },
+              officialStager: stager,
+            })
+            const imported = await source.importOfficialAlbums({
+              accountId: account.id,
+              collection: createDefaultCollection(undefined),
+              collectionDirectory,
+              packageIds: [packageIds[0]],
+            })
+            selectedPackageImported = imported.assets.length
+            selectedPackageFailures = imported.failures.length
+          } finally {
+            await rm(collectionDirectory, { recursive: true, force: true })
+          }
+        }
         reports.push({
           account: index + 1,
           catalogRecords,
           catalogPackages,
+          namedPackages,
           containers,
           staged,
           decoded,
+          selectedPackageImported,
+          selectedPackageFailures,
           stageAvailable: true,
           allDecoded: decoded === staged,
         })
@@ -125,9 +161,12 @@ async function smoke(): Promise<void> {
           account: index + 1,
           catalogRecords,
           catalogPackages,
+          namedPackages,
           containers,
           staged,
           decoded,
+          selectedPackageImported,
+          selectedPackageFailures,
           stageAvailable: false,
           allDecoded: false,
         })

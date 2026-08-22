@@ -171,6 +171,7 @@ describe('ManifestStore', () => {
           kind: 'wechat4' as const,
           label: '新版微信账号 · 0001',
           accountId: 'wechat4-aaaaaaaaaaaaaaaa',
+          album: { kind: 'official' as const, id: 'pink-rabbit', name: '粉红兔子2' },
           importedAt: '2026-08-08T01:00:00.000Z',
         },
         {

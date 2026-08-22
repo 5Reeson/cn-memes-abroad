@@ -8,6 +8,7 @@ import {
 const validRecord = {
   order: 0,
   packageId: '10000000000000000000000000000001',
+  packageName: '合成官方专辑',
   downloadStatus: 2,
   removeTime: 0,
   md5: '20000000000000000000000000000001',

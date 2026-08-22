@@ -17,7 +17,7 @@ names, column names/types, aggregate row counts); row content is never queried o
 favorite/custom rows over anonymous fd 4. Sensitive row fields never use stdout/stderr, argv, the
 environment, or logs; stdout contains aggregate counts and fixed validation booleans only.
 `storeEmoticonsFd` is the corresponding read-only product boundary for installed official packs:
-it returns only identifiers, ordering/status, container byte ranges, and remote-metadata presence
+it returns the package name, identifiers, ordering/status, container byte ranges, and remote-metadata presence
 over fd 4. It does not decrypt or export `PersistStore`/`ThumbStore` payloads; the main process uses
 those bounded ranges to validate an account-scoped local container key before staging images.
 

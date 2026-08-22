@@ -460,9 +460,10 @@ private func nonNegativeBoundedInt(_ statement: OpaquePointer?, _ index: Int32) 
 }
 
 private func streamStoreEmoticons(_ database: OpaquePointer?) throws -> [String: Any] {
-  // Store packs are held in PersistStore container files. Only the identifiers and byte ranges
-  // needed to address those containers cross fd 4; package descriptions and URLs stay in SQLite.
-  let sql = "SELECT p.package_id_,p.download_status_,p.remove_time_,"
+  // Store packs are held in PersistStore container files. The user-facing package name and the
+  // identifiers/ranges needed to address those containers cross fd 4. Descriptions and URLs stay
+  // in SQLite.
+  let sql = "SELECT p.package_id_,p.package_name_,p.download_status_,p.remove_time_,"
     + "f.md5_,f.type_,f.sort_order_,f.emoticon_size_,f.emoticon_offset_,"
     + "f.thumb_size_,f.thumb_offset_,"
     + "EXISTS(SELECT 1 FROM kNonStoreEmoticonTable AS n "
@@ -472,6 +473,7 @@ private func streamStoreEmoticons(_ database: OpaquePointer?) throws -> [String:
     + "OR length(n.cdn_url)>0 OR length(n.extern_url)>0 OR length(n.encrypt_url)>0)) "
     + "FROM kStoreEmoticonPackageTable AS p "
     + "JOIN kStoreEmoticonFilesTable AS f ON p.package_id_=f.package_id_ "
+    + "WHERE p.remove_time_=0 AND p.download_status_>0 "
     + "ORDER BY p.sort_order_,p.rowid,f.sort_order_,f.rowid;"
   var statement: OpaquePointer?
   guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -491,24 +493,27 @@ private func streamStoreEmoticons(_ database: OpaquePointer?) throws -> [String:
       throw HelperFailure(.unsupportedWechatVersion, "Store emoticon catalog exceeded its limit")
     }
     let packageId = try boundedColumnText(statement, 0)
-    let md5 = try boundedColumnText(statement, 3).lowercased()
+    let rawPackageName = try boundedColumnText(statement, 1).trimmingCharacters(in: .whitespacesAndNewlines)
+    let packageName = rawPackageName.isEmpty ? "未命名官方专辑" : rawPackageName
+    let md5 = try boundedColumnText(statement, 4).lowercased()
     guard !packageId.isEmpty, isMD5(md5) else {
       throw HelperFailure(.unsupportedWechatVersion, "Store emoticon identifier is unsupported")
     }
     let record: [String: Any] = [
       "order": order,
       "packageId": packageId,
-      "downloadStatus": Int(sqlite3_column_int64(statement, 1)),
-      "removeTime": try nonNegativeBoundedInt(statement, 2),
+      "packageName": packageName,
+      "downloadStatus": Int(sqlite3_column_int64(statement, 2)),
+      "removeTime": try nonNegativeBoundedInt(statement, 3),
       "md5": md5,
-      "type": Int(sqlite3_column_int64(statement, 4)),
-      "sortOrder": Int(sqlite3_column_int64(statement, 5)),
-      "emoticonSize": try nonNegativeBoundedInt(statement, 6),
-      "emoticonOffset": try nonNegativeBoundedInt(statement, 7),
-      "thumbSize": try nonNegativeBoundedInt(statement, 8),
-      "thumbOffset": try nonNegativeBoundedInt(statement, 9),
-      "hasEncryptedRemote": sqlite3_column_int(statement, 10) != 0,
-      "hasAnyRemote": sqlite3_column_int(statement, 11) != 0,
+      "type": Int(sqlite3_column_int64(statement, 5)),
+      "sortOrder": Int(sqlite3_column_int64(statement, 6)),
+      "emoticonSize": try nonNegativeBoundedInt(statement, 7),
+      "emoticonOffset": try nonNegativeBoundedInt(statement, 8),
+      "thumbSize": try nonNegativeBoundedInt(statement, 9),
+      "thumbOffset": try nonNegativeBoundedInt(statement, 10),
+      "hasEncryptedRemote": sqlite3_column_int(statement, 11) != 0,
+      "hasAnyRemote": sqlite3_column_int(statement, 12) != 0,
     ]
     try writeCatalogJSON(record)
     packages.insert(packageId)

@@ -59,6 +59,7 @@ import type {
   UsePreparedSnapshotResult,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  Wechat4OfficialAlbumListResult,
   WechatAccountKind,
   WechatAccountPreviewResult,
   WechatAccountPreviewView,
@@ -162,6 +163,7 @@ function toWechatAccountPreviewView(
   accountKind: WechatAccountKind,
   accountId: string,
   collection: StickerCollection,
+  scope: WechatImportStageScope = 'preview',
 ): WechatAccountPreviewView {
   return {
     accountKind,
@@ -169,7 +171,7 @@ function toWechatAccountPreviewView(
     updatedAt: collection.updatedAt,
     assets: collection.assets.map(({ originalPath: _originalPath, ...asset }) => ({
       ...asset,
-      previewUrl: wechatStagePreviewUrl('preview', accountKind, accountId, asset.id, asset.sha256),
+      previewUrl: wechatStagePreviewUrl(scope, accountKind, accountId, asset.id, asset.sha256),
     })),
   }
 }
@@ -928,14 +930,15 @@ function installIpcHandlers(): void {
       return {
         rootFound: discovery.rootFound,
         permissionDenied: discovery.permissionDenied,
-        accounts: discovery.accounts.map(
-          ({ id, label, databaseBytes, walPresent, shmPresent }) => ({
+        accounts: await Promise.all(
+          discovery.accounts.map(async ({ id, label, databaseBytes, walPresent, shmPresent }) => ({
             id,
             label,
             databaseBytes,
             walPresent,
             shmPresent,
-          }),
+            authorizationCached: await wechat4Source.hasCachedAuthorization(id),
+          })),
         ),
         failures: discovery.failures.map((failure) => failure.message),
       }
@@ -1067,13 +1070,15 @@ function installIpcHandlers(): void {
                     sendWechat4GateStatus({
                       phase: progress.phase === 'downloading' ? 'resolving' : 'importing',
                       message:
-                        progress.phase === 'downloading' ? '正在下载收藏表情' : '正在整理下载结果',
+                        progress.phase === 'downloading'
+                          ? '正在获取个人收藏表情'
+                          : '正在整理个人收藏结果',
                     })
                   },
                 ),
             ),
           )
-          sendWechat4GateStatus({ phase: 'complete', message: '收藏表情下载完成' })
+          sendWechat4GateStatus({ phase: 'complete', message: '个人收藏表情下载完成' })
           return {
             canceled: false,
             stagedImport: toWechatStagedImportView('current', accountId, staged.collection),
@@ -1095,6 +1100,208 @@ function installIpcHandlers(): void {
         return await task
       } finally {
         if (wechat4ImportTask === task) wechat4ImportTask = null
+      }
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechat4OfficialAlbums,
+    async (_event, accountId: unknown): Promise<Wechat4OfficialAlbumListResult> => {
+      if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
+        throw new TypeError('Invalid WeChat 4 account ID')
+      }
+      try {
+        const [albums, discovery] = await Promise.all([
+          wechat4Source.listOfficialAlbums(accountId),
+          wechat4Source.discover(),
+        ])
+        const sourceLabel = discovery.accounts.find((account) => account.id === accountId)?.label
+        const cachedPackageIds = albums
+          .filter((album) => album.cached)
+          .map((album) => album.packageId)
+        if (cachedPackageIds.length > 0) {
+          try {
+            const staged = await enqueueMutation(() =>
+              wechatImportStageStore.replace(
+                'official-covers',
+                'current',
+                accountId,
+                (collection, directory) =>
+                  wechat4Source.importOfficialAlbums({
+                    accountId,
+                    ...(sourceLabel === undefined ? {} : { sourceLabel }),
+                    collection,
+                    collectionDirectory: directory,
+                    packageIds: cachedPackageIds,
+                    maxItemsPerPackage: 1,
+                  }),
+              ),
+            )
+            const coverByPackage = new Map<string, (typeof staged.collection.assets)[number]>()
+            for (const asset of staged.collection.assets) {
+              for (const source of asset.sources) {
+                if (source.album?.kind === 'official') coverByPackage.set(source.album.id, asset)
+              }
+            }
+            for (const album of albums) {
+              const cover = coverByPackage.get(album.packageId)
+              if (!cover) continue
+              const { originalPath, ...safeCover } = cover
+              if (!originalPath) continue
+              album.cover = {
+                ...safeCover,
+                previewUrl: wechatStagePreviewUrl(
+                  'official-covers',
+                  'current',
+                  accountId,
+                  cover.id,
+                  cover.sha256,
+                ),
+              }
+            }
+          } catch {
+            // Album metadata remains usable when an optional cover cannot be staged.
+          }
+        }
+        return { albums, updatedAt: new Date().toISOString() }
+      } catch (error) {
+        throw sanitizeError(error)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechat4OfficialAlbumPreview,
+    async (_event, accountId: unknown, packageId: unknown): Promise<WechatAccountPreviewResult> => {
+      if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
+        throw new TypeError('Invalid WeChat 4 account ID')
+      }
+      if (typeof packageId !== 'string' || !/^[a-z0-9._:-]{1,1024}$/i.test(packageId)) {
+        throw new TypeError('Invalid official WeChat package ID')
+      }
+      try {
+        const sourceLabel = (await wechat4Source.discover()).accounts.find(
+          (account) => account.id === accountId,
+        )?.label
+        const staged = await enqueueMutation(() =>
+          wechatImportStageStore.replace(
+            'official-preview',
+            'current',
+            accountId,
+            (collection, directory) =>
+              wechat4Source.importOfficialAlbums({
+                accountId,
+                ...(sourceLabel === undefined ? {} : { sourceLabel }),
+                collection,
+                collectionDirectory: directory,
+                packageIds: [packageId],
+              }),
+          ),
+        )
+        if (staged.collection.assets.length === 0 && staged.result.failures.length > 0) {
+          throw new Error(`专辑预览失败，共 ${staged.result.failures.length} 张素材无法读取`)
+        }
+        return {
+          canceled: false,
+          preview: toWechatAccountPreviewView(
+            'current',
+            accountId,
+            staged.collection,
+            'official-preview',
+          ),
+        }
+      } catch (error) {
+        throw sanitizeError(error)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechat4OfficialAlbumsImport,
+    async (
+      event: IpcMainInvokeEvent,
+      accountId: unknown,
+      packageIds: unknown,
+    ): Promise<ImportSummary> => {
+      if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
+        throw new TypeError('Invalid WeChat 4 account ID')
+      }
+      assertStringArray(packageIds, 'packageIds')
+      if (
+        packageIds.length === 0 ||
+        new Set(packageIds).size !== packageIds.length ||
+        packageIds.some((id) => !/^[a-z0-9._:-]{1,1024}$/i.test(id))
+      ) {
+        throw new TypeError('Invalid official WeChat package selection')
+      }
+      if (wechat4ImportController || legacyWechatImportController) {
+        throw new Error('已有微信导入任务正在运行')
+      }
+      const controller = new AbortController()
+      wechat4ImportController = controller
+      try {
+        return await enqueueMutation(async () => {
+          const collection = await manifestStore.loadOrCreate()
+          const sourceLabel = (await wechat4Source.discover()).accounts.find(
+            (account) => account.id === accountId,
+          )?.label
+          let uncommittedOriginalPaths: string[] = []
+          try {
+            const result = await wechat4Source.importOfficialAlbums(
+              {
+                accountId,
+                ...(sourceLabel === undefined ? {} : { sourceLabel }),
+                collection,
+                collectionDirectory,
+                packageIds,
+                signal: controller.signal,
+              },
+              (progress) => event.sender.send(IPC_CHANNELS.wechat4Progress, progress),
+            )
+            uncommittedOriginalPaths = result.assets.map((asset) => asset.originalPath)
+            controller.signal.throwIfAborted()
+            if (
+              result.assets.length === 0 &&
+              result.sourceUpdates.length === 0 &&
+              result.failures.length > 0
+            ) {
+              throw new Error(`所选专辑导入失败，共 ${result.failures.length} 张素材无法读取`)
+            }
+            const importedIds = [...result.assets, ...result.sourceUpdates].map((asset) => asset.id)
+            const next = await manifestStore.save({
+              ...collection,
+              assets: applyImportResultAssets(collection, result),
+              selectedAssetIds: [...new Set([...collection.selectedAssetIds, ...importedIds])],
+            })
+            return {
+              canceled: false,
+              collection: toCollectionView(next),
+              imported: result.assets.length,
+              duplicates: result.duplicates.length,
+              failures: result.failures,
+              focusedAssetIds: importedIds,
+            }
+          } catch (error) {
+            await Promise.allSettled(
+              uncommittedOriginalPaths.map((originalPath) => rm(originalPath, { force: true })),
+            )
+            throw error
+          }
+        })
+      } catch (error) {
+        if (controller.signal.aborted) {
+          const collection = await manifestStore.loadOrCreate()
+          return {
+            canceled: true,
+            collection: toCollectionView(collection),
+            imported: 0,
+            duplicates: 0,
+            failures: [],
+          }
+        }
+        throw sanitizeError(error)
+      } finally {
+        if (wechat4ImportController === controller) wechat4ImportController = null
       }
     },
   )
@@ -1248,6 +1455,9 @@ function installIpcHandlers(): void {
           const displayNames = new Map(
             selectedAssets.map((asset) => [asset.originalPath, asset.displayName]),
           )
+          const albums = new Map(
+            selectedAssets.map((asset) => [asset.originalPath, asset.sources[0]?.album]),
+          )
           const collection = await manifestStore.loadOrCreate()
           const result = await localSource.importAttributed(
             {
@@ -1259,6 +1469,7 @@ function installIpcHandlers(): void {
               sourceKind: accountKind === 'current' ? 'wechat4' : 'wechat-legacy',
               sourceAccountId: accountId,
               sourceLabel: selectedAssets[0]?.sources[0]?.label,
+              sourceAlbum: (path) => albums.get(path),
               displayName: (path) => displayNames.get(path) ?? '微信表情',
             },
             (progress) =>
@@ -1540,7 +1751,8 @@ async function installWechatStageProtocol(): Promise<void> {
         .replace(/^\//, '')
         .split('/')
       if (
-        (scope !== 'preview' && scope !== 'download') ||
+        scope === undefined ||
+        !['preview', 'download', 'official-covers', 'official-preview'].includes(scope) ||
         (accountKind !== 'current' && accountKind !== 'legacy') ||
         !encodedAccountId ||
         !encodedAssetId
@@ -1548,7 +1760,7 @@ async function installWechatStageProtocol(): Promise<void> {
         return new Response('Not found', { status: 404 })
       }
       const asset = await wechatImportStageStore.findAsset(
-        scope,
+        scope as WechatImportStageScope,
         accountKind,
         decodeURIComponent(encodedAccountId),
         decodeURIComponent(encodedAssetId),

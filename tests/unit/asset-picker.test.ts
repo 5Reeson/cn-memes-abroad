@@ -44,6 +44,7 @@ const assets = [
         kind: 'wechat4',
         label: '新版微信账号 · 0001',
         accountId: 'account-a',
+        album: { kind: 'official', id: 'pink-rabbit', name: '粉红兔子2' },
         importedAt,
       },
       {
@@ -103,6 +104,15 @@ describe('asset picker core', () => {
       'a',
     ])
     expect(filterAndSortAssets(assets, { media: 'animated' }).map((item) => item.id)).toEqual(['b'])
+  })
+
+  it('filters by official album and treats old WeChat provenance as personal favorites', () => {
+    expect(
+      filterAndSortAssets(assets, { albumIds: ['pink-rabbit'] }).map((item) => item.id),
+    ).toEqual(['a'])
+    expect(
+      filterAndSortAssets(assets, { albumIds: ['wechat-personal'] }).map((item) => item.id),
+    ).toEqual(['c', 'a'])
   })
 
   it('changes only task selection and order when a filtered view is selected or reordered', () => {

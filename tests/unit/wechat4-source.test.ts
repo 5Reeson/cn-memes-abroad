@@ -1,5 +1,5 @@
 import { createCipheriv, createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -365,7 +365,7 @@ describe('Wechat4StickerSource', () => {
     encryptedCache.fill(0)
   })
 
-  it('imports locally staged official packs even when the personal catalog is empty', async () => {
+  it('imports selected locally staged official packs separately from personal favorites', async () => {
     const setup = await fixture()
     const officialPng = await sharp({
       create: { width: 11, height: 9, channels: 4, background: '#663399ff' },
@@ -380,21 +380,99 @@ describe('Wechat4StickerSource', () => {
         stage: async ({ stagingDirectory }) => {
           const path = join(stagingDirectory, 'official.asset')
           await writeFile(path, officialPng)
-          return [{ path, label: '微信官方表情包 01 · 001' }]
+          return [
+            {
+              path,
+              label: '合成官方专辑·001',
+              packageId: 'synthetic.package',
+              packageName: '合成官方专辑',
+              memberIndex: 0,
+            },
+          ]
         },
       },
     })
 
-    const result = await source.import({
+    const result = await source.importOfficialAlbums({
       accountId: setup.accountId,
       collection: createDefaultCollection(undefined),
       collectionDirectory: setup.collectionDirectory,
+      packageIds: ['synthetic.package'],
     })
 
     expect(result.assets).toHaveLength(1)
-    expect(result.assets[0]?.displayName).toBe('微信官方表情包 01 · 001')
+    expect(result.assets[0]?.displayName).toBe('合成官方专辑·001')
     expect(result.assets[0]?.sources[0]?.kind).toBe('wechat4')
+    expect(result.assets[0]?.sources[0]?.album).toEqual({
+      kind: 'official',
+      id: 'synthetic.package',
+      name: '合成官方专辑',
+    })
     expect(result.failures).toEqual([])
+    officialPng.fill(0)
+  })
+
+  it('keeps decrypted official files until the attributed import has finished', async () => {
+    const setup = await fixture()
+    const officialPng = await sharp({
+      create: { width: 11, height: 9, channels: 4, background: '#335577ff' },
+    })
+      .png()
+      .toBuffer()
+    let stagedPath = ''
+    let releaseProgress: () => void = () => undefined
+    const progressGate = new Promise<void>((resolve) => {
+      releaseProgress = resolve
+    })
+    let reportStarted: () => void = () => undefined
+    const firstReport = new Promise<void>((resolve) => {
+      reportStarted = resolve
+    })
+    let held = false
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [] },
+      officialStager: {
+        stage: async ({ stagingDirectory }) => {
+          stagedPath = join(stagingDirectory, 'official.asset')
+          await writeFile(stagedPath, officialPng)
+          return [
+            {
+              path: stagedPath,
+              label: '合成官方专辑·001',
+              packageId: 'synthetic.package',
+              packageName: '合成官方专辑',
+              memberIndex: 0,
+            },
+          ]
+        },
+      },
+    })
+
+    const importing = source.importOfficialAlbums(
+      {
+        accountId: setup.accountId,
+        collection: createDefaultCollection(undefined),
+        collectionDirectory: setup.collectionDirectory,
+        packageIds: ['synthetic.package'],
+      },
+      async () => {
+        if (held) return
+        held = true
+        reportStarted()
+        await progressGate
+      },
+    )
+
+    await firstReport
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    await expect(access(stagedPath)).resolves.toBeUndefined()
+    releaseProgress()
+    const result = await importing
+
+    expect(result.assets).toHaveLength(1)
+    await expect(access(stagedPath)).rejects.toMatchObject({ code: 'ENOENT' })
     officialPng.fill(0)
   })
 
@@ -430,12 +508,7 @@ describe('Wechat4StickerSource', () => {
     })
 
     expect(result.assets).toHaveLength(1)
-    expect(result.failures).toEqual([
-      {
-        path: '微信官方表情包',
-        reason: '本地官方表情读取失败；收藏和自定义表情不受影响',
-      },
-    ])
+    expect(result.failures).toEqual([])
     expect(JSON.stringify(result)).not.toContain('sensitive detail')
     personalPng.fill(0)
   })

@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { ArrowClockwiseIcon as ArrowClockwise } from '@phosphor-icons/react/ArrowClockwise'
+import { CheckIcon as Check } from '@phosphor-icons/react/Check'
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/CheckCircle'
 import { DownloadSimpleIcon as DownloadSimple } from '@phosphor-icons/react/DownloadSimple'
 import { EyeIcon as Eye } from '@phosphor-icons/react/Eye'
@@ -17,6 +19,7 @@ import type {
   Wechat4GateStatus,
   Wechat4ImportAccountView,
   Wechat4ImportDiscoveryView,
+  Wechat4OfficialAlbumView,
   WechatAccountPreviewView,
   WechatStagedAssetView,
   WechatStagedImportView,
@@ -26,9 +29,10 @@ import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerImagePreviewDialog } from './components/StickerImagePreviewDialog.js'
 import { StickerPicker } from './components/StickerPicker.js'
+import { useBoxSelection } from './components/useBoxSelection.js'
 import { WechatDownloadSettings } from './components/WechatDownloadSettings.js'
 
-type WechatAccount =
+export type WechatAccount =
   | { kind: 'current'; account: Wechat4ImportAccountView }
   | { kind: 'legacy'; account: LegacyWechatAccountView }
 
@@ -39,12 +43,12 @@ interface PendingAction {
   action: WechatAccountAction
 }
 
-interface ActiveTask {
+export interface ActiveTask {
   item: WechatAccount
   action: WechatAccountAction
 }
 
-interface DownloadedImport {
+export interface DownloadedImport {
   item: WechatAccount
   stagedImport: WechatStagedImportView
 }
@@ -52,6 +56,38 @@ interface DownloadedImport {
 interface WechatDiscoveries {
   current: Wechat4ImportDiscoveryView
   legacy: LegacyWechatDiscoveryView
+}
+
+export interface WechatImportSessionState {
+  activeTask: ActiveTask | null
+  accountPreviews: Record<string, WechatAccountPreviewView>
+  downloadedImport: DownloadedImport | null
+  officialAccount: Wechat4ImportAccountView | null
+  officialAlbums: Wechat4OfficialAlbumView[]
+  officialAlbumsLoading: boolean
+  officialAlbumsError: string | null
+  officialSelectedIds: string[]
+  officialImporting: boolean
+  downloadMode: WechatDownloadMode
+  progress: ImportProgress | null
+  gateStatus: Wechat4GateStatus
+}
+
+export function createWechatImportSessionState(): WechatImportSessionState {
+  return {
+    activeTask: null,
+    accountPreviews: {},
+    downloadedImport: null,
+    officialAccount: null,
+    officialAlbums: [],
+    officialAlbumsLoading: false,
+    officialAlbumsError: null,
+    officialSelectedIds: [],
+    officialImporting: false,
+    downloadMode: 'default',
+    progress: null,
+    gateStatus: { phase: 'idle', message: '等待选择账号' },
+  }
 }
 
 const EMPTY_DISCOVERIES: WechatDiscoveries = {
@@ -77,9 +113,9 @@ function importStatusLabel(status: Wechat4GateStatus): string {
     case 'awaiting-favorites':
       return '等待打开收藏表情'
     case 'validating':
-      return '正在读取收藏数据'
+      return '正在读取个人收藏数据'
     case 'resolving':
-      return '正在获取收藏表情'
+      return '正在获取个人收藏表情'
     case 'importing':
       return '正在保存到我的表情库'
     case 'cleaning':
@@ -95,33 +131,93 @@ export function WechatImportPanel({
   onClose,
   onImported,
   onStopped,
+  onLoadStarted,
+  onContinue,
+  canContinue,
+  session,
+  onSessionChange,
 }: {
   onClose: () => void
   onImported: (summary: ImportSummary) => void
   onStopped: () => void
+  onLoadStarted: () => void
+  onContinue: () => void
+  canContinue: boolean
+  session: WechatImportSessionState
+  onSessionChange: Dispatch<SetStateAction<WechatImportSessionState>>
 }) {
   const [discoveries, setDiscoveries] = useState<WechatDiscoveries>(EMPTY_DISCOVERIES)
   const [loading, setLoading] = useState(true)
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
-  const [accountPreviews, setAccountPreviews] = useState<Record<string, WechatAccountPreviewView>>(
-    {},
-  )
   const [previewAsset, setPreviewAsset] = useState<WechatStagedAssetView | null>(null)
-  const [downloadedImport, setDownloadedImport] = useState<DownloadedImport | null>(null)
+  const [officialAlbumDialogOpen, setOfficialAlbumDialogOpen] = useState(false)
+  const [officialPreview, setOfficialPreview] = useState<WechatAccountPreviewView | null>(null)
+  const [officialPreviewName, setOfficialPreviewName] = useState('')
+  const [officialPreviewLoading, setOfficialPreviewLoading] = useState(false)
+  const [officialPreviewError, setOfficialPreviewError] = useState<string | null>(null)
   const [selectionDialogOpen, setSelectionDialogOpen] = useState(false)
   const [stagedSelectedIds, setStagedSelectedIds] = useState<string[]>([])
   const [stagedOrderedIds, setStagedOrderedIds] = useState<string[]>([])
   const [committingSelection, setCommittingSelection] = useState(false)
-  const [downloadMode, setDownloadMode] = useState<WechatDownloadMode>('default')
   const [canceling, setCanceling] = useState(false)
-  const [progress, setProgress] = useState<ImportProgress | null>(null)
-  const [gateStatus, setGateStatus] = useState<Wechat4GateStatus>({
-    phase: 'idle',
-    message: '等待选择账号',
-  })
   const [error, setError] = useState<string | null>(null)
+  const {
+    activeTask,
+    accountPreviews,
+    downloadedImport,
+    officialAccount,
+    officialAlbums,
+    officialAlbumsLoading,
+    officialAlbumsError,
+    officialSelectedIds,
+    officialImporting,
+    downloadMode,
+    progress,
+    gateStatus,
+  } = session
+
+  function setSessionValue<K extends keyof WechatImportSessionState>(
+    key: K,
+    value:
+      | WechatImportSessionState[K]
+      | ((current: WechatImportSessionState[K]) => WechatImportSessionState[K]),
+  ) {
+    onSessionChange((current) => ({
+      ...current,
+      [key]:
+        typeof value === 'function'
+          ? (value as (current: WechatImportSessionState[K]) => WechatImportSessionState[K])(
+              current[key],
+            )
+          : value,
+    }))
+  }
+
+  const setActiveTask = (value: SetStateAction<ActiveTask | null>) =>
+    setSessionValue('activeTask', value)
+  const setAccountPreviews = (value: SetStateAction<Record<string, WechatAccountPreviewView>>) =>
+    setSessionValue('accountPreviews', value)
+  const setDownloadedImport = (value: SetStateAction<DownloadedImport | null>) =>
+    setSessionValue('downloadedImport', value)
+  const setOfficialAccount = (value: SetStateAction<Wechat4ImportAccountView | null>) =>
+    setSessionValue('officialAccount', value)
+  const setOfficialAlbums = (value: SetStateAction<Wechat4OfficialAlbumView[]>) =>
+    setSessionValue('officialAlbums', value)
+  const setOfficialAlbumsLoading = (value: SetStateAction<boolean>) =>
+    setSessionValue('officialAlbumsLoading', value)
+  const setOfficialAlbumsError = (value: SetStateAction<string | null>) =>
+    setSessionValue('officialAlbumsError', value)
+  const setOfficialSelectedIds = (value: SetStateAction<string[]>) =>
+    setSessionValue('officialSelectedIds', value)
+  const setOfficialImporting = (value: SetStateAction<boolean>) =>
+    setSessionValue('officialImporting', value)
+  const setDownloadMode = (value: SetStateAction<WechatDownloadMode>) =>
+    setSessionValue('downloadMode', value)
+  const setProgress = (value: SetStateAction<ImportProgress | null>) =>
+    setSessionValue('progress', value)
+  const setGateStatus = (value: SetStateAction<Wechat4GateStatus>) =>
+    setSessionValue('gateStatus', value)
 
   async function discover() {
     const api = window.stickerApp
@@ -146,7 +242,26 @@ export function WechatImportPanel({
           return preview ? ([accountKey(item), preview] as const) : undefined
         }),
       )
-      setAccountPreviews(Object.fromEntries(cached.filter((item) => item !== undefined)))
+      const cachedEntries = cached.filter((item) => item !== undefined)
+      setAccountPreviews(Object.fromEntries(cachedEntries))
+      const currentPreviewAccounts = new Set(
+        cachedEntries
+          .map(([key]) => /^current:(.+)$/.exec(key)?.[1])
+          .filter((id): id is string => id !== undefined),
+      )
+      if (currentPreviewAccounts.size > 0) {
+        setDiscoveries({
+          current: {
+            ...current,
+            accounts: current.accounts.map((account) =>
+              currentPreviewAccounts.has(account.id)
+                ? { ...account, authorizationCached: true }
+                : account,
+            ),
+          },
+          legacy,
+        })
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -167,14 +282,62 @@ export function WechatImportPanel({
     }
   }, [])
 
+  useEffect(() => {
+    if (!officialPreviewName || officialPreviewLoading) return
+
+    function closeOfficialPreviewOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeOfficialPreview()
+    }
+
+    window.addEventListener('keydown', closeOfficialPreviewOnEscape)
+    return () => window.removeEventListener('keydown', closeOfficialPreviewOnEscape)
+  }, [officialPreviewLoading, officialPreviewName])
+
+  useEffect(() => {
+    if (!officialAlbumDialogOpen || officialImporting || officialPreviewName) return
+
+    function closeAlbumPickerOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setOfficialAlbumDialogOpen(false)
+    }
+
+    window.addEventListener('keydown', closeAlbumPickerOnEscape)
+    return () => window.removeEventListener('keydown', closeAlbumPickerOnEscape)
+  }, [officialAlbumDialogOpen, officialImporting, officialPreviewName])
+
+  function closeOfficialPreview() {
+    setOfficialPreview(null)
+    setOfficialPreviewName('')
+    setOfficialPreviewError(null)
+  }
+
   function selectAccount(item: WechatAccount, action: WechatAccountAction) {
     setError(null)
     if (item.kind === 'current') {
+      if (item.account.authorizationCached) {
+        void runCurrentAccountAction(item.account, action)
+        return
+      }
       setPendingAction({ account: item.account, action })
       setConfirmed(false)
       return
     }
     void runLegacyAccountAction(item, action)
+  }
+
+  function markAuthorizationCached(accountId: string) {
+    setDiscoveries((current) => ({
+      ...current,
+      current: {
+        ...current.current,
+        accounts: current.current.accounts.map((account) =>
+          account.id === accountId ? { ...account, authorizationCached: true } : account,
+        ),
+      },
+    }))
   }
 
   async function runLegacyAccountAction(
@@ -183,7 +346,15 @@ export function WechatImportPanel({
   ) {
     const api = window.stickerApp
     if (!api) return setError('桌面桥接不可用，请重新打开应用。')
-    if (action === 'download') setDownloadedImport(null)
+    if (action === 'download') {
+      onLoadStarted()
+      setDownloadedImport(null)
+      setOfficialAccount(null)
+      setOfficialAlbums([])
+      setOfficialSelectedIds([])
+      setOfficialAlbumsError(null)
+      setOfficialAlbumsLoading(false)
+    }
     setActiveTask({ item, action })
     setProgress(null)
     try {
@@ -214,19 +385,38 @@ export function WechatImportPanel({
     }
   }
 
-  async function runCurrentAccountAction() {
+  async function runCurrentAccountAction(
+    directAccount?: Wechat4ImportAccountView,
+    directAction?: WechatAccountAction,
+  ) {
     const api = window.stickerApp
-    if (!api || !pendingAction || !confirmed) return
-    const item: WechatAccount = { kind: 'current', account: pendingAction.account }
-    const action = pendingAction.action
+    const account = directAccount ?? pendingAction?.account
+    const action = directAction ?? pendingAction?.action
+    if (!api || !account || !action || (!directAccount && !confirmed)) return
+    const item: WechatAccount = { kind: 'current', account }
     setPendingAction(null)
-    if (action === 'download') setDownloadedImport(null)
+    let officialAlbumsPromise:
+      ReturnType<NonNullable<typeof window.stickerApp>['listWechat4OfficialAlbums']> | undefined
+    if (action === 'download') {
+      onLoadStarted()
+      setDownloadedImport(null)
+      setOfficialAccount(item.account)
+      setOfficialAlbums([])
+      setOfficialSelectedIds([])
+      setOfficialAlbumsError(null)
+      setOfficialAlbumsLoading(true)
+      if (item.account.authorizationCached) {
+        officialAlbumsPromise = api.listWechat4OfficialAlbums(item.account.id)
+        void officialAlbumsPromise.catch(() => undefined)
+      }
+    }
     setActiveTask({ item, action })
     setProgress(null)
     setError(null)
     try {
       if (action === 'preview') {
         const result = await api.previewWechat4(item.account.id, true, downloadMode)
+        if (!result.canceled) markAuthorizationCached(item.account.id)
         if (result.preview) {
           setAccountPreviews((current) => ({
             ...current,
@@ -235,20 +425,85 @@ export function WechatImportPanel({
         }
       } else {
         const result = await api.downloadWechat4(item.account.id, true, downloadMode)
+        if (!result.canceled) markAuthorizationCached(item.account.id)
         if (result.stagedImport) {
-          if (result.stagedImport.assets.length === 0) {
-            setError('下载已完成，但没有可导入的表情。')
-          } else {
-            setDownloadedImport({ item, stagedImport: result.stagedImport })
-          }
+          setDownloadedImport({ item, stagedImport: result.stagedImport })
+          setOfficialAccount(item.account)
+          await refreshOfficialAlbums(item.account, officialAlbumsPromise)
         }
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
+      if (action === 'download') setOfficialAlbumsLoading(false)
       setActiveTask(null)
       setProgress(null)
       setCanceling(false)
+    }
+  }
+
+  async function refreshOfficialAlbums(
+    account = officialAccount,
+    pendingResult?: ReturnType<NonNullable<typeof window.stickerApp>['listWechat4OfficialAlbums']>,
+  ) {
+    const api = window.stickerApp
+    if (!api || !account) return
+    setOfficialAlbumsLoading(true)
+    setOfficialAlbumsError(null)
+    try {
+      const albumResult = await (pendingResult ?? api.listWechat4OfficialAlbums(account.id))
+      setOfficialAlbums(albumResult.albums)
+      setOfficialSelectedIds((current) =>
+        current.filter((id) => albumResult.albums.some((album) => album.packageId === id)),
+      )
+    } catch (reason) {
+      setOfficialAlbumsError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setOfficialAlbumsLoading(false)
+    }
+  }
+
+  async function previewOfficialAlbum(album: Wechat4OfficialAlbumView) {
+    const api = window.stickerApp
+    if (!api || !officialAccount || officialPreviewLoading) return
+    setOfficialPreviewLoading(true)
+    setOfficialPreviewName(album.name)
+    setOfficialPreview(null)
+    setOfficialPreviewError(null)
+    try {
+      const result = await api.previewWechat4OfficialAlbum(officialAccount.id, album.packageId)
+      if (result.preview?.assets.length) {
+        setOfficialPreview(result.preview)
+      } else {
+        setOfficialPreviewError(
+          '这个专辑的本地缓存当前无法读取。请重新打开对应的微信账号，进入表情面板并等待专辑加载完成，然后返回这里重新检测。',
+        )
+      }
+    } catch {
+      setOfficialPreviewError(
+        '这个专辑的本地缓存当前无法读取。请重新打开对应的微信账号，进入表情面板并等待专辑加载完成，然后返回这里重新检测。',
+      )
+    } finally {
+      setOfficialPreviewLoading(false)
+    }
+  }
+
+  async function importOfficialAlbums() {
+    const api = window.stickerApp
+    if (!api || !officialAccount || officialSelectedIds.length === 0 || officialImporting) return
+    setOfficialImporting(true)
+    setError(null)
+    setActiveTask({ item: { kind: 'current', account: officialAccount }, action: 'download' })
+    try {
+      const result = await api.importWechat4OfficialAlbums(officialAccount.id, officialSelectedIds)
+      setOfficialAlbumDialogOpen(false)
+      onImported(result)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setActiveTask(null)
+      setProgress(null)
+      setOfficialImporting(false)
     }
   }
 
@@ -314,7 +569,6 @@ export function WechatImportPanel({
       )
       setSelectionDialogOpen(false)
       onImported(result)
-      onClose()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -329,8 +583,30 @@ export function WechatImportPanel({
   const permissionDenied =
     discoveries.current.permissionDenied || discoveries.legacy.permissionDenied
   const busy = activeTask !== null || pendingAction !== null || committingSelection
-  const statusLabel =
-    activeTask?.action === 'preview' && gateStatus.phase === 'importing'
+  const availableOfficialIds = officialAlbums
+    .filter((album) => album.cached)
+    .map((album) => album.packageId)
+  const allAvailableOfficialAlbumsSelected =
+    availableOfficialIds.length > 0 &&
+    availableOfficialIds.every((id) => officialSelectedIds.includes(id))
+  const officialAlbumBoxSelection = useBoxSelection({
+    disabled: officialImporting,
+    excludeSelector: '.wechat-album-card-select',
+    onSelectIds: (ids) =>
+      setOfficialSelectedIds((current) => [
+        ...current,
+        ...ids.filter((id) => !current.includes(id) && availableOfficialIds.includes(id)),
+      ]),
+  })
+  const showTaskProgress =
+    activeTask !== null &&
+    (activeTask.action === 'download' ||
+      (activeTask.item.kind === 'current' &&
+        (gateStatus.phase === 'awaiting-qr' || gateStatus.phase === 'awaiting-favorites')))
+  const showCompletedDownloads = activeTask?.action !== 'download'
+  const statusLabel = officialImporting
+    ? '正在导入官方表情专辑'
+    : activeTask?.action === 'preview' && gateStatus.phase === 'importing'
       ? '正在生成账户预览'
       : activeTask?.action === 'download' && gateStatus.phase === 'importing'
         ? '正在整理下载结果'
@@ -518,7 +794,7 @@ export function WechatImportPanel({
         </>
       )}
 
-      {activeTask && (
+      {activeTask && showTaskProgress && (
         <div
           className={`wechat-import-progress${
             activeTask.item.kind === 'current' ? ` wechat4-gate-${gateStatus.phase}` : ''
@@ -580,31 +856,328 @@ export function WechatImportPanel({
           ) : (
             <p>正在准备导入…</p>
           )}
+          {activeTask.action === 'download' &&
+            (activeTask.item.kind === 'current' ? (
+              <p className="wechat-official-loading-note">
+                <ArrowClockwise size={14} className="is-spinning" />
+                正在加载微信表情合集
+              </p>
+            ) : (
+              <p className="wechat-official-loading-note is-unsupported">
+                官方表情专辑需要升级本机微信版本后（4.0 以上）才能获取。
+              </p>
+            ))}
         </div>
       )}
 
-      {downloadedImport && !activeTask && (
+      {downloadedImport && showCompletedDownloads && (
         <div className="wechat-download-ready" aria-live="polite">
           <span>
             <CheckCircle size={17} weight="fill" />
-            <strong>下载成功</strong>
-            <small>{downloadedImport.stagedImport.assets.length} 张表情可供选择</small>
+            <strong>个人收藏下载成功</strong>
+            <small>{downloadedImport.stagedImport.assets.length} 张个人收藏表情可供选择</small>
           </span>
-          <button type="button" className="primary-button" onClick={openStagedImportPicker}>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || downloadedImport.stagedImport.assets.length === 0}
+            onClick={openStagedImportPicker}
+          >
             选择导入表情
           </button>
         </div>
       )}
 
-      {!activeTask && !pendingAction && accounts.length > 0 ? (
+      {downloadedImport?.item.kind === 'current' && showCompletedDownloads && (
+        <div className="wechat-download-ready wechat-official-ready" aria-live="polite">
+          <span>
+            {officialAlbumsLoading ? (
+              <ArrowClockwise size={17} className="is-spinning" />
+            ) : officialAlbumsError ? (
+              <Warning size={17} weight="fill" />
+            ) : (
+              <CheckCircle size={17} weight="fill" />
+            )}
+            <strong>
+              {officialAlbumsLoading
+                ? '正在读取表情专辑'
+                : officialAlbumsError
+                  ? '表情专辑读取失败'
+                  : '表情专辑下载成功'}
+            </strong>
+            <small>
+              {officialAlbumsLoading
+                ? '正在获取专辑名称和封面'
+                : (officialAlbumsError ?? `共 ${officialAlbums.length} 个专辑可供选择`)}
+            </small>
+          </span>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={
+              busy || officialAlbumsLoading || (!officialAlbumsError && officialAlbums.length === 0)
+            }
+            onClick={() => {
+              if (officialAlbumsError) void refreshOfficialAlbums()
+              else setOfficialAlbumDialogOpen(true)
+            }}
+          >
+            {officialAlbumsError ? '重新读取' : '选择导入专辑'}
+          </button>
+        </div>
+      )}
+
+      {downloadedImport?.item.kind === 'legacy' && showCompletedDownloads && (
+        <p className="wechat-official-unsupported">
+          官方表情专辑需要升级本机微信版本后（4.0 以上）才能获取。
+        </p>
+      )}
+
+      {!pendingAction && accounts.length > 0 ? (
         <p className="wechat4-privacy-note">
           <CheckCircle size={15} /> 微信数据只在本机读取和处理。
         </p>
       ) : null}
 
+      {canContinue && !activeTask && !pendingAction && (
+        <div className="wechat-import-next-step">
+          <span>
+            <strong>本次导入结果已保留</strong>
+            <small>你可以继续导入其它内容，或前往下一步选择目的地。</small>
+          </span>
+          <button type="button" className="primary-button" onClick={onContinue}>
+            下一步
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
+
       {previewAsset && (
         <StickerImagePreviewDialog asset={previewAsset} onClose={() => setPreviewAsset(null)} />
       )}
+
+      {officialAlbumDialogOpen && officialAccount && (
+        <div
+          className="preview-backdrop wechat-picker-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!officialImporting) setOfficialAlbumDialogOpen(false)
+          }}
+        >
+          <section
+            className="wechat-import-picker-dialog wechat-album-picker-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wechat-album-picker-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <h2 id="wechat-album-picker-title">选择导入专辑</h2>
+                <p>按专辑选择，导入时会保存专辑内的全部表情。</p>
+              </div>
+              <button
+                type="button"
+                className="panel-close"
+                aria-label="关闭专辑选择器"
+                disabled={officialImporting}
+                onClick={() => setOfficialAlbumDialogOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </header>
+            <div className="wechat-album-list">
+              {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
+              <div className="wechat-album-cache-note" role="note">
+                <span>
+                  专辑来自本机微信缓存。如果数量不完整，请先在微信表情面板浏览并等待加载，再重新检测。
+                </span>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={officialAlbumsLoading || officialImporting}
+                  onClick={() => void refreshOfficialAlbums()}
+                >
+                  <ArrowClockwise size={15} />
+                  {officialAlbumsLoading ? '正在检测' : '重新检测'}
+                </button>
+              </div>
+              <div
+                className="wechat-album-grid"
+                ref={officialAlbumBoxSelection.gridRef}
+                onPointerDown={officialAlbumBoxSelection.onPointerDown}
+                onClickCapture={officialAlbumBoxSelection.onClickCapture}
+                onDragStart={(event) => event.preventDefault()}
+              >
+                <div
+                  className="box-selection-marquee"
+                  ref={officialAlbumBoxSelection.marqueeRef}
+                  hidden
+                  aria-hidden="true"
+                />
+                {officialAlbums.map((album) => {
+                  const checked = officialSelectedIds.includes(album.packageId)
+                  return (
+                    <article
+                      key={album.packageId}
+                      className={`wechat-album-card${checked ? ' is-selected' : ''}${
+                        !album.cached ? ' is-unavailable' : ''
+                      }`}
+                      data-box-selection-id={album.cached ? album.packageId : undefined}
+                    >
+                      <button
+                        type="button"
+                        className="wechat-album-card-preview"
+                        disabled={!album.cached || officialPreviewLoading}
+                        aria-label={`查看 ${album.name} 的全部表情`}
+                        title={album.cached ? `查看 ${album.name}` : `${album.name} 尚未载入本机`}
+                        onClick={() => void previewOfficialAlbum(album)}
+                      >
+                        <span className="wechat-album-card-cover">
+                          {album.cover ? (
+                            <ProgressiveImage
+                              src={album.cover.previewUrl}
+                              alt={`${album.name}封面`}
+                            />
+                          ) : (
+                            <span className="wechat-album-card-cover-empty" aria-label="缓存待刷新">
+                              缓存待刷新
+                            </span>
+                          )}
+                        </span>
+                        <span className="wechat-album-card-meta">
+                          <strong title={album.name}>{album.name}</strong>
+                          <small>
+                            {album.stickerCount} 张表情{album.cached ? '' : ' · 尚未载入本机'}
+                          </small>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="wechat-album-card-select"
+                        aria-label={`${checked ? '取消选择' : '选择'} ${album.name}`}
+                        aria-pressed={checked}
+                        disabled={!album.cached || officialImporting}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setOfficialSelectedIds((current) =>
+                            current.includes(album.packageId)
+                              ? current.filter((id) => id !== album.packageId)
+                              : [...current, album.packageId],
+                          )
+                        }}
+                      >
+                        {checked && <Check size={15} weight="bold" />}
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+            <footer>
+              <div className="wechat-album-selection-summary">
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={
+                    officialImporting ||
+                    availableOfficialIds.length === 0 ||
+                    allAvailableOfficialAlbumsSelected
+                  }
+                  onClick={() => setOfficialSelectedIds(availableOfficialIds)}
+                >
+                  全选可用专辑
+                </button>
+                <span>
+                  已选择 {officialSelectedIds.length} 个专辑
+                  <small>拖过卡片可框选多个专辑</small>
+                </span>
+              </div>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={officialImporting || officialSelectedIds.length === 0}
+                  onClick={() => setOfficialSelectedIds([])}
+                >
+                  取消当前选择
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={officialImporting || officialSelectedIds.length === 0}
+                  onClick={() => void importOfficialAlbums()}
+                >
+                  {officialImporting ? '正在导入...' : `导入 ${officialSelectedIds.length} 个专辑`}
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {(officialPreviewLoading || officialPreview || officialPreviewError) &&
+        officialPreviewName && (
+          <div
+            className="preview-backdrop wechat-album-preview-backdrop"
+            role="presentation"
+            onClick={() => {
+              if (!officialPreviewLoading) closeOfficialPreview()
+            }}
+          >
+            <section
+              className="wechat-album-preview-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="wechat-album-preview-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <div>
+                  <h2 id="wechat-album-preview-title">{officialPreviewName}</h2>
+                  <p>
+                    {officialPreview
+                      ? `${officialPreview.assets.length} 张表情`
+                      : officialPreviewError
+                        ? '暂时无法读取专辑内容'
+                        : '正在读取专辑内容'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="panel-close"
+                  aria-label="关闭专辑预览"
+                  disabled={officialPreviewLoading}
+                  onClick={closeOfficialPreview}
+                >
+                  <X size={17} />
+                </button>
+              </header>
+              {officialPreviewLoading ? (
+                <p className="wechat-album-preview-loading">
+                  <ArrowClockwise size={15} className="is-spinning" />
+                  正在加载本地专辑内容...
+                </p>
+              ) : officialPreviewError ? (
+                <div className="wechat-album-preview-error" role="alert">
+                  <Warning size={20} weight="fill" />
+                  <div>
+                    <strong>缓存出现问题，请重新打开微信</strong>
+                    <p>{officialPreviewError}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="wechat-album-preview-grid">
+                  {officialPreview?.assets.map((asset) => (
+                    <div className="wechat-album-preview-item" key={asset.id}>
+                      <ProgressiveImage src={asset.previewUrl} alt={asset.displayName} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
 
       {selectionDialogOpen && downloadedImport && (
         <div

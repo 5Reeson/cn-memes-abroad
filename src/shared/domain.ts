@@ -4,6 +4,14 @@ export const CURRENT_PREPARED_SNAPSHOT_SCHEMA_VERSION = 1 as const
 
 export type StickerSourceKind = 'local' | 'wechat4' | 'wechat-legacy'
 
+export type StickerAlbumKind = 'personal' | 'official'
+
+export interface StickerAlbumRef {
+  kind: StickerAlbumKind
+  id: string
+  name: string
+}
+
 /**
  * A safe, user-facing provenance reference. `id` and `accountId` are opaque
  * application identifiers; labels must already be masked before persistence.
@@ -15,6 +23,7 @@ export interface StickerAssetSource {
   label: string
   accountId?: string
   importBatchId?: string
+  album?: StickerAlbumRef
   importedAt: string
 }
 
@@ -282,6 +291,7 @@ export interface Wechat4ImportAccountView {
   databaseBytes: number
   walPresent: boolean
   shmPresent: boolean
+  authorizationCached: boolean
 }
 
 export interface Wechat4ImportDiscoveryView {
@@ -343,6 +353,19 @@ export interface WechatStagedImportView {
 export interface WechatStageDownloadResult {
   canceled: boolean
   stagedImport?: WechatStagedImportView
+}
+
+export interface Wechat4OfficialAlbumView {
+  packageId: string
+  name: string
+  stickerCount: number
+  cached: boolean
+  cover?: WechatStagedAssetView
+}
+
+export interface Wechat4OfficialAlbumListResult {
+  albums: Wechat4OfficialAlbumView[]
+  updatedAt: string
 }
 
 export interface PackSettings {
