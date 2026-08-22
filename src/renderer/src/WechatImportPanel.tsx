@@ -19,11 +19,13 @@ import type {
   Wechat4ImportDiscoveryView,
   WechatAccountPreviewView,
   WechatStagedAssetView,
+  WechatStagedImportView,
   WechatDownloadMode,
 } from '../../shared/domain.js'
 import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerImagePreviewDialog } from './components/StickerImagePreviewDialog.js'
+import { StickerPicker } from './components/StickerPicker.js'
 import { WechatDownloadSettings } from './components/WechatDownloadSettings.js'
 
 type WechatAccount =
@@ -40,6 +42,11 @@ interface PendingAction {
 interface ActiveTask {
   item: WechatAccount
   action: WechatAccountAction
+}
+
+interface DownloadedImport {
+  item: WechatAccount
+  stagedImport: WechatStagedImportView
 }
 
 interface WechatDiscoveries {
@@ -102,6 +109,11 @@ export function WechatImportPanel({
     {},
   )
   const [previewAsset, setPreviewAsset] = useState<WechatStagedAssetView | null>(null)
+  const [downloadedImport, setDownloadedImport] = useState<DownloadedImport | null>(null)
+  const [selectionDialogOpen, setSelectionDialogOpen] = useState(false)
+  const [stagedSelectedIds, setStagedSelectedIds] = useState<string[]>([])
+  const [stagedOrderedIds, setStagedOrderedIds] = useState<string[]>([])
+  const [committingSelection, setCommittingSelection] = useState(false)
   const [downloadMode, setDownloadMode] = useState<WechatDownloadMode>('default')
   const [canceling, setCanceling] = useState(false)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -171,6 +183,7 @@ export function WechatImportPanel({
   ) {
     const api = window.stickerApp
     if (!api) return setError('桌面桥接不可用，请重新打开应用。')
+    if (action === 'download') setDownloadedImport(null)
     setActiveTask({ item, action })
     setProgress(null)
     try {
@@ -183,10 +196,13 @@ export function WechatImportPanel({
           }))
         }
       } else {
-        const result = await api.importLegacyWechat(item.account.id, downloadMode)
-        if (!result.canceled) {
-          onImported(result)
-          onClose()
+        const result = await api.downloadLegacyWechat(item.account.id, downloadMode)
+        if (result.stagedImport) {
+          if (result.stagedImport.assets.length === 0) {
+            setError('下载已完成，但没有可导入的表情。')
+          } else {
+            setDownloadedImport({ item, stagedImport: result.stagedImport })
+          }
         }
       }
     } catch (reason) {
@@ -204,6 +220,7 @@ export function WechatImportPanel({
     const item: WechatAccount = { kind: 'current', account: pendingAction.account }
     const action = pendingAction.action
     setPendingAction(null)
+    if (action === 'download') setDownloadedImport(null)
     setActiveTask({ item, action })
     setProgress(null)
     setError(null)
@@ -217,10 +234,13 @@ export function WechatImportPanel({
           }))
         }
       } else {
-        const result = await api.importWechat4(item.account.id, true, downloadMode)
-        if (!result.canceled) {
-          onImported(result)
-          onClose()
+        const result = await api.downloadWechat4(item.account.id, true, downloadMode)
+        if (result.stagedImport) {
+          if (result.stagedImport.assets.length === 0) {
+            setError('下载已完成，但没有可导入的表情。')
+          } else {
+            setDownloadedImport({ item, stagedImport: result.stagedImport })
+          }
         }
       }
     } catch (reason) {
@@ -255,6 +275,7 @@ export function WechatImportPanel({
   }
 
   async function closePanel() {
+    if (committingSelection) return
     await cancelImport(true)
   }
 
@@ -269,17 +290,51 @@ export function WechatImportPanel({
     }
   }
 
+  function openStagedImportPicker() {
+    if (!downloadedImport) return
+    setError(null)
+    const ids = downloadedImport.stagedImport.assets.map((asset) => asset.id)
+    setStagedSelectedIds(ids)
+    setStagedOrderedIds(ids)
+    setSelectionDialogOpen(true)
+  }
+
+  async function commitStagedImport() {
+    const api = window.stickerApp
+    if (!api || !downloadedImport || committingSelection || stagedSelectedIds.length === 0) return
+    const selected = new Set(stagedSelectedIds)
+    const orderedSelection = stagedOrderedIds.filter((id) => selected.has(id))
+    setCommittingSelection(true)
+    setError(null)
+    try {
+      const result = await api.commitWechatStagedImport(
+        downloadedImport.item.kind,
+        downloadedImport.item.account.id,
+        orderedSelection,
+      )
+      setSelectionDialogOpen(false)
+      onImported(result)
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setCommittingSelection(false)
+    }
+  }
+
   const accounts: WechatAccount[] = [
     ...discoveries.current.accounts.map((account) => ({ kind: 'current' as const, account })),
     ...discoveries.legacy.accounts.map((account) => ({ kind: 'legacy' as const, account })),
   ]
   const permissionDenied =
     discoveries.current.permissionDenied || discoveries.legacy.permissionDenied
-  const busy = activeTask !== null || pendingAction !== null
+  const busy = activeTask !== null || pendingAction !== null || committingSelection
   const statusLabel =
     activeTask?.action === 'preview' && gateStatus.phase === 'importing'
       ? '正在生成账户预览'
-      : importStatusLabel(gateStatus)
+      : activeTask?.action === 'download' && gateStatus.phase === 'importing'
+        ? '正在整理下载结果'
+        : importStatusLabel(gateStatus)
 
   return (
     <section className="wechat-import-panel" aria-labelledby="wechat-title">
@@ -295,7 +350,7 @@ export function WechatImportPanel({
           type="button"
           className="panel-close"
           onClick={() => void closePanel()}
-          disabled={canceling}
+          disabled={canceling || committingSelection}
           aria-label={activeTask ? '停止当前任务并关闭' : '关闭微信导入'}
         >
           <X size={17} />
@@ -374,9 +429,7 @@ export function WechatImportPanel({
                               </button>
                             ))}
                           </div>
-                        ) : (
-                          <span className="wechat-account-preview-placeholder" />
-                        )}
+                        ) : null}
                         <div className="wechat-account-actions">
                           <button
                             type="button"
@@ -385,7 +438,7 @@ export function WechatImportPanel({
                             onClick={() => selectAccount(item, 'preview')}
                           >
                             <Eye size={16} />
-                            {taskForAccount?.action === 'preview' ? '预览中...' : '预览'}
+                            {taskForAccount?.action === 'preview' ? '下载中...' : '预览5张'}
                           </button>
                           <button
                             type="button"
@@ -394,7 +447,7 @@ export function WechatImportPanel({
                             onClick={() => selectAccount(item, 'download')}
                           >
                             <DownloadSimple size={16} />
-                            {taskForAccount?.action === 'download' ? '正在导入...' : '选择并导入'}
+                            {taskForAccount?.action === 'download' ? '下载中...' : '全部加载'}
                           </button>
                         </div>
                       </article>
@@ -530,6 +583,19 @@ export function WechatImportPanel({
         </div>
       )}
 
+      {downloadedImport && !activeTask && (
+        <div className="wechat-download-ready" aria-live="polite">
+          <span>
+            <CheckCircle size={17} weight="fill" />
+            <strong>下载成功</strong>
+            <small>{downloadedImport.stagedImport.assets.length} 张表情可供选择</small>
+          </span>
+          <button type="button" className="primary-button" onClick={openStagedImportPicker}>
+            选择导入表情
+          </button>
+        </div>
+      )}
+
       {!activeTask && !pendingAction && accounts.length > 0 ? (
         <p className="wechat4-privacy-note">
           <CheckCircle size={15} /> 微信数据只在本机读取和处理。
@@ -538,6 +604,74 @@ export function WechatImportPanel({
 
       {previewAsset && (
         <StickerImagePreviewDialog asset={previewAsset} onClose={() => setPreviewAsset(null)} />
+      )}
+
+      {selectionDialogOpen && downloadedImport && (
+        <div
+          className="preview-backdrop wechat-picker-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!committingSelection) setSelectionDialogOpen(false)
+          }}
+        >
+          <section
+            className="wechat-import-picker-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wechat-picker-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <h2 id="wechat-picker-title">选择导入表情</h2>
+                <p>筛选并勾选要保存到“我的表情库”的内容。</p>
+              </div>
+              <button
+                type="button"
+                className="panel-close"
+                aria-label="关闭表情选择器"
+                disabled={committingSelection}
+                onClick={() => setSelectionDialogOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </header>
+            <div className="wechat-import-picker-content">
+              {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
+              <StickerPicker
+                assets={downloadedImport.stagedImport.assets}
+                selectedIds={stagedSelectedIds}
+                orderedIds={stagedOrderedIds}
+                mode="export"
+                toolbar="wechat-import"
+                allowCopy={false}
+                onSelection={setStagedSelectedIds}
+                onOrder={setStagedOrderedIds}
+              />
+            </div>
+            <footer>
+              <span>已选择 {stagedSelectedIds.length} 张</span>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={committingSelection}
+                  onClick={() => setSelectionDialogOpen(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={committingSelection || stagedSelectedIds.length === 0}
+                  onClick={() => void commitStagedImport()}
+                >
+                  {committingSelection ? '正在导入...' : `导入 ${stagedSelectedIds.length} 张表情`}
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
       )}
     </section>
   )

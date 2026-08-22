@@ -63,6 +63,8 @@ import type {
   WechatAccountPreviewResult,
   WechatAccountPreviewView,
   WechatDownloadMode,
+  WechatStagedImportView,
+  WechatStageDownloadResult,
 } from '../shared/domain.js'
 import { IPC_CHANNELS } from '../shared/ipc.js'
 
@@ -168,6 +170,22 @@ function toWechatAccountPreviewView(
     assets: collection.assets.map(({ originalPath: _originalPath, ...asset }) => ({
       ...asset,
       previewUrl: wechatStagePreviewUrl('preview', accountKind, accountId, asset.id, asset.sha256),
+    })),
+  }
+}
+
+function toWechatStagedImportView(
+  accountKind: WechatAccountKind,
+  accountId: string,
+  collection: StickerCollection,
+): WechatStagedImportView {
+  return {
+    accountKind,
+    accountId,
+    updatedAt: collection.updatedAt,
+    assets: collection.assets.map(({ originalPath: _originalPath, ...asset }) => ({
+      ...asset,
+      previewUrl: wechatStagePreviewUrl('download', accountKind, accountId, asset.id, asset.sha256),
     })),
   }
 }
@@ -787,6 +805,48 @@ function installIpcHandlers(): void {
     },
   )
 
+  ipcMain.handle(
+    IPC_CHANNELS.wechatLegacyDownload,
+    async (
+      event: IpcMainInvokeEvent,
+      accountId: unknown,
+      downloadMode: unknown,
+    ): Promise<WechatStageDownloadResult> => {
+      if (typeof accountId !== 'string') throw new TypeError('Invalid WeChat account ID')
+      assertWechatDownloadMode(downloadMode)
+      if (legacyWechatImportController || wechat4ImportController) {
+        throw new Error('已有微信导入任务正在运行')
+      }
+      const controller = new AbortController()
+      legacyWechatImportController = controller
+      try {
+        const staged = await enqueueMutation(() =>
+          wechatImportStageStore.replace('download', 'legacy', accountId, (collection, directory) =>
+            legacyWechatSource.import(
+              {
+                accountId,
+                collection,
+                collectionDirectory: directory,
+                downloadMode,
+                signal: controller.signal,
+              },
+              (progress) => event.sender.send(IPC_CHANNELS.wechatLegacyProgress, progress),
+            ),
+          ),
+        )
+        return {
+          canceled: false,
+          stagedImport: toWechatStagedImportView('legacy', accountId, staged.collection),
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return { canceled: true }
+        throw sanitizeError(error)
+      } finally {
+        if (legacyWechatImportController === controller) legacyWechatImportController = null
+      }
+    },
+  )
+
   ipcMain.handle(IPC_CHANNELS.wechatLegacyCancel, () => {
     const controller = legacyWechatImportController
     if (!controller || controller.signal.aborted) return false
@@ -962,6 +1022,83 @@ function installIpcHandlers(): void {
     },
   )
 
+  ipcMain.handle(
+    IPC_CHANNELS.wechat4Download,
+    async (
+      event: IpcMainInvokeEvent,
+      accountId: unknown,
+      confirmed: unknown,
+      downloadMode: unknown,
+    ): Promise<WechatStageDownloadResult> => {
+      if (typeof accountId !== 'string' || !/^wechat4-[a-f0-9]{16}$/.test(accountId)) {
+        throw new TypeError('Invalid WeChat 4 account ID')
+      }
+      if (confirmed !== true) throw new Error('必须先确认微信临时副本授权说明')
+      assertWechatDownloadMode(downloadMode)
+      if (wechat4ImportController || legacyWechatImportController) {
+        throw new Error('已有微信导入任务正在运行')
+      }
+
+      const controller = new AbortController()
+      wechat4ImportController = controller
+      const task = (async (): Promise<WechatStageDownloadResult> => {
+        sendWechat4GateStatus({ phase: 'preparing', message: '正在检查已验证的安全缓存' })
+        try {
+          const sourceLabel = (await wechat4Source.discover()).accounts.find(
+            (account) => account.id === accountId,
+          )?.label
+          const staged = await enqueueMutation(() =>
+            wechatImportStageStore.replace(
+              'download',
+              'current',
+              accountId,
+              (collection, directory) =>
+                wechat4Source.import(
+                  {
+                    accountId,
+                    ...(sourceLabel === undefined ? {} : { sourceLabel }),
+                    collection,
+                    collectionDirectory: directory,
+                    downloadMode,
+                    signal: controller.signal,
+                  },
+                  (progress) => {
+                    event.sender.send(IPC_CHANNELS.wechat4Progress, progress)
+                    sendWechat4GateStatus({
+                      phase: progress.phase === 'downloading' ? 'resolving' : 'importing',
+                      message:
+                        progress.phase === 'downloading' ? '正在下载收藏表情' : '正在整理下载结果',
+                    })
+                  },
+                ),
+            ),
+          )
+          sendWechat4GateStatus({ phase: 'complete', message: '收藏表情下载完成' })
+          return {
+            canceled: false,
+            stagedImport: toWechatStagedImportView('current', accountId, staged.collection),
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            sendWechat4GateStatus({ phase: 'failed', message: '收藏表情下载失败' })
+            throw sanitizeError(error)
+          }
+          sendWechat4GateStatus({ phase: 'canceled', message: '本次下载已取消' })
+          return { canceled: true }
+        } finally {
+          resolveWechat4FavoritesReady = null
+          if (wechat4ImportController === controller) wechat4ImportController = null
+        }
+      })()
+      wechat4ImportTask = task
+      try {
+        return await task
+      } finally {
+        if (wechat4ImportTask === task) wechat4ImportTask = null
+      }
+    },
+  )
+
   ipcMain.handle(IPC_CHANNELS.wechat4Cancel, () => {
     const controller = wechat4ImportController
     if (!controller || controller.signal.aborted) return false
@@ -1077,6 +1214,89 @@ function installIpcHandlers(): void {
         return await task
       } finally {
         if (wechat4ImportTask === task) wechat4ImportTask = null
+      }
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.wechatStagedImportCommit,
+    async (
+      event: IpcMainInvokeEvent,
+      accountKind: unknown,
+      accountId: unknown,
+      selectedAssetIds: unknown,
+    ): Promise<ImportSummary> => {
+      if (accountKind !== 'current' && accountKind !== 'legacy') {
+        throw new TypeError('Invalid WeChat account kind')
+      }
+      if (typeof accountId !== 'string') throw new TypeError('Invalid WeChat account ID')
+      assertStringArray(selectedAssetIds, 'selectedAssetIds')
+      if (selectedAssetIds.length === 0) throw new Error('请至少选择一张表情')
+      if (new Set(selectedAssetIds).size !== selectedAssetIds.length) {
+        throw new TypeError('Selected WeChat assets must be unique')
+      }
+
+      try {
+        return await enqueueMutation(async () => {
+          const staged = await wechatImportStageStore.load('download', accountKind, accountId)
+          if (!staged) throw new Error('下载结果已失效，请重新选择并下载')
+          const stagedById = new Map(staged.assets.map((asset) => [asset.id, asset]))
+          if (selectedAssetIds.some((id) => !stagedById.has(id))) {
+            throw new TypeError('Selection contains an unknown staged WeChat asset')
+          }
+          const selectedAssets = selectedAssetIds.map((id) => stagedById.get(id)!)
+          const displayNames = new Map(
+            selectedAssets.map((asset) => [asset.originalPath, asset.displayName]),
+          )
+          const collection = await manifestStore.loadOrCreate()
+          const result = await localSource.importAttributed(
+            {
+              collection,
+              collectionDirectory,
+              inputs: selectedAssets.map((asset) => asset.originalPath),
+            },
+            {
+              sourceKind: accountKind === 'current' ? 'wechat4' : 'wechat-legacy',
+              sourceAccountId: accountId,
+              sourceLabel: selectedAssets[0]?.sources[0]?.label,
+              displayName: (path) => displayNames.get(path) ?? '微信表情',
+            },
+            (progress) =>
+              event.sender.send(
+                accountKind === 'current'
+                  ? IPC_CHANNELS.wechat4Progress
+                  : IPC_CHANNELS.wechatLegacyProgress,
+                progress,
+              ),
+          )
+          const importedByHash = new Map(
+            [...result.assets, ...result.sourceUpdates].map((asset) => [asset.sha256, asset.id]),
+          )
+          const selectedImportedIds = [
+            ...new Set(
+              selectedAssets
+                .map((asset) => importedByHash.get(asset.sha256))
+                .filter((id): id is string => id !== undefined),
+            ),
+          ]
+          const next = await manifestStore.save({
+            ...collection,
+            assets: applyImportResultAssets(collection, result),
+            selectedAssetIds: [
+              ...new Set([...collection.selectedAssetIds, ...selectedImportedIds]),
+            ],
+          })
+          return {
+            canceled: false,
+            collection: toCollectionView(next),
+            imported: result.assets.length,
+            duplicates: result.duplicates.length,
+            failures: result.failures,
+            focusedAssetIds: selectedImportedIds,
+          }
+        })
+      } catch (error) {
+        throw sanitizeError(error)
       }
     },
   )

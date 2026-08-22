@@ -64,6 +64,8 @@ export interface StickerPickerProps {
   onSelection(ids: string[]): void
   onOrder(ids: string[]): void
   onDelete?(ids: string[]): void | Promise<void>
+  toolbar?: 'full' | 'wechat-import'
+  allowCopy?: boolean
 }
 
 function sourceKey(asset: Asset): string[] {
@@ -82,6 +84,8 @@ export function StickerPicker({
   onSelection,
   onOrder,
   onDelete,
+  toolbar = 'full',
+  allowCopy = true,
 }: StickerPickerProps) {
   const [query, setQuery] = useState('')
   const [media, setMedia] = useState<'all' | 'static' | 'animated'>('all')
@@ -432,7 +436,9 @@ export function StickerPicker({
 
   const animatedSelected = assets.filter((asset) => selected.has(asset.id) && asset.animated).length
   return (
-    <section className={`sticker-picker ${mode}`}>
+    <section
+      className={`sticker-picker ${mode}${toolbar === 'wechat-import' ? ' wechat-import' : ''}`}
+    >
       <div className="picker-toolbar">
         <div className="picker-media-tabs" aria-label="按类型筛选">
           {(['all', 'static', 'animated'] as const).map((value) => (
@@ -450,16 +456,20 @@ export function StickerPicker({
             </button>
           ))}
         </div>
-        <label className="picker-search">
-          <Search size={16} />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索表情名称"
-          />
-        </label>
-        <SourceFilter value={source} options={sourceOptions} onChange={setSource} />
+        {toolbar === 'full' && (
+          <>
+            <label className="picker-search">
+              <Search size={16} />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索表情名称"
+              />
+            </label>
+            <SourceFilter value={source} options={sourceOptions} onChange={setSource} />
+          </>
+        )}
         <SortFilter value={sort} onChange={setSort} />
       </div>
       <div className="picker-selection-bar">
@@ -558,7 +568,7 @@ export function StickerPicker({
         <StickerImagePreviewDialog
           asset={preview}
           onClose={() => setPreview(null)}
-          onCopy={copyPreviewImage}
+          {...(allowCopy ? { onCopy: copyPreviewImage } : {})}
           {...(onDelete ? { onDelete: () => onDelete([preview.id]) } : {})}
         />
       )}

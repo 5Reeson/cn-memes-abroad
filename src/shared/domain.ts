@@ -259,6 +259,7 @@ export interface ImportSummary {
   imported: number
   duplicates: number
   failures: ImportFailure[]
+  focusedAssetIds?: string[]
 }
 
 export interface LegacyWechatAccountView {
@@ -330,6 +331,18 @@ export interface WechatAccountPreviewView {
 export interface WechatAccountPreviewResult {
   canceled: boolean
   preview?: WechatAccountPreviewView
+}
+
+export interface WechatStagedImportView {
+  accountKind: WechatAccountKind
+  accountId: string
+  assets: WechatStagedAssetView[]
+  updatedAt: string
+}
+
+export interface WechatStageDownloadResult {
+  canceled: boolean
+  stagedImport?: WechatStagedImportView
 }
 
 export interface PackSettings {

@@ -220,9 +220,11 @@ export function App() {
     setFailures(result.failures)
     if (result.canceled) return
     const previousIds = new Set(collection?.assets.map((asset) => asset.id) ?? [])
-    const importedIds = result.collection.assets
-      .filter((asset) => !previousIds.has(asset.id))
-      .map((asset) => asset.id)
+    const importedIds =
+      result.focusedAssetIds ??
+      result.collection.assets
+        .filter((asset) => !previousIds.has(asset.id))
+        .map((asset) => asset.id)
     const latestSource = result.collection.assets
       .flatMap((asset) => asset.sources)
       .filter((source) =>
@@ -444,7 +446,7 @@ export function App() {
             <WechatImportPanel
               onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+              onStopped={() => setNotice('已停止当前微信任务。')}
             />
           ) : null
         }
@@ -480,7 +482,7 @@ export function App() {
             <WechatImportPanel
               onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+              onStopped={() => setNotice('已停止当前微信任务。')}
             />
           ) : null
         }
@@ -503,7 +505,7 @@ export function App() {
             <WechatImportPanel
               onClose={() => setWechatOpen(false)}
               onImported={(result) => applyImportSummary(result, 'wechat')}
-              onStopped={() => setNotice('已停止微信导入，已写入的素材不会回滚。')}
+              onStopped={() => setNotice('已停止当前微信任务。')}
             />
           ) : null
         }

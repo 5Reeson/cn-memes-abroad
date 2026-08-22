@@ -29,6 +29,7 @@ import type {
   WechatAccountPreviewResult,
   WechatAccountPreviewView,
   WechatDownloadMode,
+  WechatStageDownloadResult,
 } from './domain.js'
 
 export const IPC_CHANNELS = {
@@ -53,11 +54,14 @@ export const IPC_CHANNELS = {
   wechatLegacyDiscover: 'wechat-legacy:discover',
   wechatPreviewGet: 'wechat-preview:get',
   wechatLegacyPreview: 'wechat-legacy:preview',
+  wechatLegacyDownload: 'wechat-legacy:download',
   wechatLegacyImport: 'wechat-legacy:import',
   wechatLegacyCancel: 'wechat-legacy:cancel',
   wechatLegacyProgress: 'wechat-legacy:progress',
   wechat4Discover: 'wechat4:discover',
   wechat4Preview: 'wechat4:preview',
+  wechat4Download: 'wechat4:download',
+  wechatStagedImportCommit: 'wechat-staged-import:commit',
   wechat4Import: 'wechat4:import',
   wechat4Cancel: 'wechat4:cancel',
   wechat4FavoritesReady: 'wechat4:favorites-ready',
@@ -108,6 +112,10 @@ export interface StickerAppApi {
     accountId: string,
     downloadMode: LegacyWechatDownloadMode,
   ): Promise<WechatAccountPreviewResult>
+  downloadLegacyWechat(
+    accountId: string,
+    downloadMode: LegacyWechatDownloadMode,
+  ): Promise<WechatStageDownloadResult>
   importLegacyWechat(
     accountId: string,
     downloadMode: LegacyWechatDownloadMode,
@@ -119,6 +127,16 @@ export interface StickerAppApi {
     confirmed: boolean,
     downloadMode: WechatDownloadMode,
   ): Promise<WechatAccountPreviewResult>
+  downloadWechat4(
+    accountId: string,
+    confirmed: boolean,
+    downloadMode: WechatDownloadMode,
+  ): Promise<WechatStageDownloadResult>
+  commitWechatStagedImport(
+    accountKind: WechatAccountKind,
+    accountId: string,
+    selectedAssetIds: string[],
+  ): Promise<ImportSummary>
   importWechat4(
     accountId: string,
     confirmed: boolean,
