@@ -193,7 +193,7 @@ export class WhatsAppManager {
             this.update({
               phase: 'reconnecting',
               hasSession: true,
-              message: '关联完成，正在复用新 session 重新连接…',
+              message: '关联完成，正在复用新登录凭证重新连接…',
             })
             await this.openSocket(undefined, browserMode)
           } else if (code === DisconnectReason.loggedOut) {

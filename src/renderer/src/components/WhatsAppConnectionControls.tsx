@@ -43,7 +43,7 @@ export function WhatsAppConnectionControls({
               />
               <span>
                 <strong>macOS 钥匙串保护</strong>
-                <small>推荐。使用系统安全存储加密 session。</small>
+                <small>推荐。使用系统安全存储加密登录凭证。</small>
               </span>
             </label>
             <label className={connection.credentialMode === 'plaintext' ? 'is-selected' : ''}>
@@ -55,14 +55,14 @@ export function WhatsAppConnectionControls({
               />
               <span>
                 <strong>本地明文文件</strong>
-                <small>安全性较低；目录 0700、文件 0600，仅建议排障时使用。</small>
+                <small>安全性较低；仅建议排障时使用。</small>
               </span>
             </label>
           </fieldset>
           {!connection.canChangeCredentialMode && (
             <p className={variant === 'panel' ? 'inline-note' : 'credential-mode-note'}>
               {connection.hasSession
-                ? '已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。'
+                ? '已有登录凭证时不能直接切换；如需更改，请先登出 WhatsApp。'
                 : '连接流程进行中；如需更改，请先取消连接。'}
             </p>
           )}

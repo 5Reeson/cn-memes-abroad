@@ -163,9 +163,9 @@ export function WhatsAppSendPanel({
                 {connection.message ??
                   (connection.hasSession
                     ? connection.credentialMode === 'keychain'
-                      ? 'session 由 macOS 钥匙串保护；连接后通常无需再次扫码。'
-                      : 'session 保存在权限受限的本地明文文件；连接后通常无需再次扫码。'
-                    : '首次关联前请选择 session 的本机存储方式。')}
+                      ? '登录凭证由 macOS 钥匙串保护；连接后通常无需再次扫码。'
+                      : '登录凭证保存在权限受限的本地明文文件；连接后通常无需再次扫码。'
+                    : '首次关联前请选择登录凭证的本机存储方式。')}
               </p>
             </div>
           </div>

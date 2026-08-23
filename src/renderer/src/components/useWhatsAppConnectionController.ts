@@ -98,7 +98,7 @@ export function useWhatsAppConnectionController({
   async function logout() {
     if (
       !window.confirm(
-        '确认登出 WhatsApp 并删除本机 session？我的表情库、微信安全缓存和表情分组存档不会删除。',
+        '确认登出 WhatsApp 并删除本机登录凭证？我的表情库、微信安全缓存和表情分组存档不会删除。',
       )
     ) {
       return undefined

@@ -69,6 +69,18 @@
   - https://github.com/WhatsApp/stickers/blob/main/Android/README.md
 - WhatsApp 没有找到公开的 account-wide sticker pack 总数限制，因此产品不要宣传“无限”；开发测试中记录添加 10/30/50/100 包时的实际表现。
 
+### 2.5 术语映射：session ↔ 登录凭证
+
+- 内部代码、存储路径、协议层继续使用英文 `session`（如 `hasSession`、`sessionToken`、`session.enc`、`.phase0/session`），不需要改动。
+- **用户可见文案（前端 UI、主进程错误/状态消息、CLI）统一把 `session` 表达为「登录凭证」**，不要直接向用户暴露 `session` 一词。
+- 理由：`session` 对非技术用户难以理解；产品已有的「登出并清除登录凭证」「复用已保存的登录」等说法已使用该表述，统一后术语收敛。语义上 WhatsApp session 即扫码关联后的设备登录凭证。
+- 示例映射：
+  - `已有 session 时不能直接切换；如需更改，请先登出 WhatsApp。` → `已有登录凭证时不能直接切换；如需更改，请先登出 WhatsApp。`
+  - `使用系统安全存储加密 session。` → `使用系统安全存储加密登录凭证。`
+  - `确认登出 WhatsApp 并删除本机 session？…` → `确认登出 WhatsApp 并删除本机登录凭证？…`
+- 新增用户可见文案时遵循同一规则；代码注释和内部文档仍可保留 `session`。
+- 权限码等技术细节（如目录 `0700`、文件 `0600`）不得出现在用户可见文案中；需要表达时改用平实描述（如“以受限权限保存”）或直接省略。
+
 ## 3. 本次确认的开发顺序
 
 先做相对独立、能快速验证价值的两部分：

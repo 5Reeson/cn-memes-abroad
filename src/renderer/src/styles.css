@@ -1901,6 +1901,11 @@ button:disabled {
   line-height: 1.45;
 }
 
+/* 提示文案存在时，按钮与文案的间距与上方选项保持一致 */
+.credential-mode-note + .connection-actions {
+  margin-top: 8px;
+}
+
 .credential-mode-picker:disabled label {
   cursor: default;
   opacity: 0.72;
@@ -4612,6 +4617,11 @@ button:focus-visible .path-display[data-tooltip-placement='right'] .path-display
 }
 
 .credential-options + .inline-note {
+  margin-top: 9px;
+}
+
+/* 提示文案存在时，按钮与文案的间距与上方选项保持一致 */
+.credential-options + .inline-note + footer {
   margin-top: 9px;
 }
 
