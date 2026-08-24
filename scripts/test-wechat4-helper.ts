@@ -9,9 +9,11 @@ import { encodeSyntheticCandidateFrame } from '../src/main/sources/wechat4/candi
 import {
   runWechat4Helper,
   runWechat4HelperForPersonalEmoticons,
+  runWechat4HelperForStoreEmoticons,
   runWechat4HelperWithCandidateFrame,
 } from '../src/main/sources/wechat4/helper-runner.js'
 import { clearWechat4PersonalEmoticonCatalog } from '../src/main/sources/wechat4/personal-emoticon-catalog.js'
+import { clearWechat4StoreEmoticonCatalog } from '../src/main/sources/wechat4/store-emoticon-catalog.js'
 
 const helper = resolve('native/wechat4-helper/build/universal/wechat4-helper')
 const fixtureMaker = resolve('native/wechat4-helper/build/universal/wechat4-fixture-maker')
@@ -61,6 +63,7 @@ try {
       assert.equal((probe.result.capabilities as unknown[]).includes('validateCandidateFd'), true)
       assert.equal((probe.result.capabilities as unknown[]).includes('schemaOverviewFd'), true)
       assert.equal((probe.result.capabilities as unknown[]).includes('personalEmoticonsFd'), true)
+      assert.equal((probe.result.capabilities as unknown[]).includes('storeEmoticonsFd'), true)
     }
 
     const selfTest = await runWechat4Helper(
@@ -163,7 +166,7 @@ try {
         }>
         views: Array<{ name: string; columns: string[] }>
       }
-      assert.equal(overviewResult.tableCount, 5)
+      assert.equal(overviewResult.tableCount, 7)
       assert.equal(overviewResult.viewCount, 1)
       assert.equal(overviewResult.indexCount, 1)
       assert.equal(overviewResult.triggerCount, 0)
@@ -175,6 +178,8 @@ try {
           'kCustomEmoticonOrderTable',
           'kFavEmoticonOrderTable',
           'kNonStoreEmoticonTable',
+          'kStoreEmoticonFilesTable',
+          'kStoreEmoticonPackageTable',
         ],
       )
       const markerTable = overviewResult.tables[0]!
@@ -204,6 +209,64 @@ try {
       assert.equal(serialized.includes('synthetic-pipe-test'), false)
       assert.equal(serialized.includes('synthetic-overview-a'), false)
       assert.equal(serialized.includes('synthetic-overview-b'), false)
+    }
+
+    const storeCatalogFrame = encodeSyntheticCandidateFrame({ salt, key })
+    const storeCatalog = await runWechat4HelperForStoreEmoticons(
+      {
+        v: 1,
+        id: `${architecture}-store-emoticons`,
+        method: 'storeEmoticonsFd',
+        params: { databasePath: fixturePath },
+      },
+      storeCatalogFrame,
+      runner,
+    )
+    assert.equal(storeCatalogFrame.equals(Buffer.alloc(56)), true)
+    assert.equal(storeCatalog.response.ok, true)
+    if (storeCatalog.response.ok) {
+      assert.equal(storeCatalog.response.result.verified, true)
+      assert.equal(storeCatalog.response.result.recordCount, 3)
+      assert.equal(storeCatalog.response.result.packageCount, 2)
+      assert.equal(JSON.stringify(storeCatalog.response).includes('10000000'), false)
+      assert.deepEqual(
+        storeCatalog.records.map((record) => [
+          record.order,
+          record.packageId,
+          record.packageName,
+          record.md5,
+          record.emoticonOffset,
+          record.emoticonSize,
+        ]),
+        [
+          [
+            0,
+            '10000000000000000000000000000001',
+            '合成专辑一',
+            '20000000000000000000000000000001',
+            10,
+            20,
+          ],
+          [
+            1,
+            '10000000000000000000000000000001',
+            '合成专辑一',
+            '20000000000000000000000000000002',
+            38,
+            40,
+          ],
+          [
+            2,
+            '10000000000000000000000000000002',
+            '合成专辑二',
+            '20000000000000000000000000000003',
+            4,
+            12,
+          ],
+        ],
+      )
+      clearWechat4StoreEmoticonCatalog(storeCatalog.records)
+      assert.equal(storeCatalog.records.length, 0)
     }
 
     const catalogFrame = encodeSyntheticCandidateFrame({ salt, key })

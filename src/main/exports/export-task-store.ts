@@ -61,7 +61,9 @@ export class ExportTaskStore {
 
   async load(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
-    if (primary.kind === 'valid') return primary.task
+    if (primary.kind === 'valid') {
+      return primary.task
+    }
     if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
     if (isUnsupported(primary)) throw primary.error
 
@@ -88,7 +90,9 @@ export class ExportTaskStore {
 
   async loadOrCreate(): Promise<ExportTask> {
     const primary = await this.tryRead(this.path)
-    if (primary.kind === 'valid') return primary.task
+    if (primary.kind === 'valid') {
+      return primary.task
+    }
     if (primary.kind === 'legacy') return this.migratePrimary(primary.task)
     if (isUnsupported(primary)) throw primary.error
 
@@ -254,7 +258,7 @@ export function createDefaultExportTask(now = new Date(), id: string = randomUUI
     currentStep: 1,
     selectedAssetIds: [],
     orderedAssetIds: [],
-    whatsapp: { title: '我的表情', publisher: 'CN Memes Abroad', packSize: 30 },
+    whatsapp: { title: '我的表情', publisher: '图渡', packSize: 30 },
     localFolder: {
       batchName: '本地导出',
       format: 'original',

@@ -138,7 +138,7 @@ async function discoverInternal(
       ])
       accounts.push({
         id: accountId(entry.name),
-        label: `微信 4.x 账号 · ${entry.name.slice(-4)}`,
+        label: `新版微信账号 ${entry.name.slice(-4)}`,
         databaseBytes: Number(database.size),
         walPresent: wal !== null,
         shmPresent: shm !== null,
@@ -152,7 +152,7 @@ async function discoverInternal(
           rootFound: true,
           permissionDenied: true,
           accounts: [],
-          failures: [{ code: 'PERMISSION_DENIED', message: '没有读取微信 4.x 账号数据的权限' }],
+          failures: [{ code: 'PERMISSION_DENIED', message: '没有读取新版微信账号数据的权限' }],
         }
       }
     }
@@ -186,6 +186,12 @@ export interface Wechat4EmoticonCachePaths {
   persistPath?: string
   /** Thumbnail cache; usable only after the normal image decoder validates it. */
   thumbPath?: string
+}
+
+export interface Wechat4StoreLayout {
+  /** Used only inside the main process to derive the account-scoped container key. */
+  accountDirectoryName: string
+  containers: Map<string, string>
 }
 
 /** Gate G discovery intentionally avoids even inspecting key-metadata or any non-emoticon DB. */
@@ -229,7 +235,7 @@ export async function resolveWechat4EmoticonCaches(
   }
   const discovery = await discoverInternal(root, { inspectKeyMetadata: false })
   const account = discovery.accounts.find((candidate) => candidate.id === accountIdToResolve)
-  if (!account) throw new Error('选择的微信 4.x 账号已不可用')
+  if (!account) throw new Error('选择的新版微信账号已不可用')
 
   const base = join(account.accountDirectory, 'business', 'emoticon')
   const resolved = new Map<string, Wechat4EmoticonCachePaths>()
@@ -244,6 +250,59 @@ export async function resolveWechat4EmoticonCaches(
     })
   }
   return resolved
+}
+
+/**
+ * Resolves only official-pack container files explicitly named by the decrypted catalog. The
+ * account directory name and paths must remain in the main process and must never be logged or sent
+ * to the renderer.
+ */
+export async function resolveWechat4StoreLayout(
+  accountIdToResolve: string,
+  packageIds: readonly string[],
+  root = DEFAULT_WECHAT4_ROOT,
+): Promise<Wechat4StoreLayout> {
+  if (
+    packageIds.length > 10_000 ||
+    packageIds.some((packageId) => !/^[a-z0-9._:-]{1,1024}$/i.test(packageId))
+  ) {
+    throw new TypeError('Invalid WeChat official-emoticon package identifier')
+  }
+  const discovery = await discoverInternal(root, { inspectKeyMetadata: false })
+  const account = discovery.accounts.find((candidate) => candidate.id === accountIdToResolve)
+  if (!account) throw new Error('选择的新版微信账号已不可用')
+
+  const wanted = new Map<string, string>()
+  for (const packageId of packageIds) {
+    if (/^[a-f0-9]{32}$/i.test(packageId)) wanted.set(packageId.toLowerCase(), packageId)
+    wanted.set(createHash('md5').update(packageId).digest('hex'), packageId)
+  }
+
+  const containers = new Map<string, string>()
+  const storeDirectory = join(account.accountDirectory, 'business', 'emoticon', 'PersistStore')
+  const shards = await readdir(storeDirectory, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return []
+      throw error
+    },
+  )
+  for (const shard of shards) {
+    if (!shard.isDirectory() || shard.isSymbolicLink()) continue
+    const shardDirectory = join(storeDirectory, shard.name)
+    const entries = await readdir(shardDirectory, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.isSymbolicLink()) continue
+      const packageId = wanted.get(entry.name.toLowerCase())
+      if (!packageId || containers.has(packageId)) continue
+      const path = join(shardDirectory, entry.name)
+      if (await regularFile(path)) containers.set(packageId, path)
+    }
+  }
+
+  return {
+    accountDirectoryName: account.accountDirectory.split('/').at(-1)!,
+    containers,
+  }
 }
 
 interface FileFingerprint {
@@ -325,7 +384,7 @@ export async function snapshotWechat4Database(
     inspectKeyMetadata: false,
   })
   const account = discovery.accounts.find((candidate) => candidate.id === accountIdToSnapshot)
-  if (!account) throw new Error('选择的微信 4.x 账号或数据库已不可用')
+  if (!account) throw new Error('选择的新版微信账号或数据库已不可用')
 
   for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
     const snapshot = await copySnapshotAttempt(

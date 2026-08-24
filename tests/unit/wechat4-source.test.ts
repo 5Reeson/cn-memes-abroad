@@ -1,5 +1,5 @@
 import { createCipheriv, createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -363,5 +363,153 @@ describe('Wechat4StickerSource', () => {
     encryptedCachePng.fill(0)
     encryptedDownload.fill(0)
     encryptedCache.fill(0)
+  })
+
+  it('imports selected locally staged official packs separately from personal favorites', async () => {
+    const setup = await fixture()
+    const officialPng = await sharp({
+      create: { width: 11, height: 9, channels: 4, background: '#663399ff' },
+    })
+      .png()
+      .toBuffer()
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [] },
+      officialStager: {
+        stage: async ({ stagingDirectory }) => {
+          const path = join(stagingDirectory, 'official.asset')
+          await writeFile(path, officialPng)
+          return [
+            {
+              path,
+              label: '合成官方专辑·001',
+              packageId: 'synthetic.package',
+              packageName: '合成官方专辑',
+              memberIndex: 0,
+            },
+          ]
+        },
+      },
+    })
+
+    const result = await source.importOfficialAlbums({
+      accountId: setup.accountId,
+      collection: createDefaultCollection(undefined),
+      collectionDirectory: setup.collectionDirectory,
+      packageIds: ['synthetic.package'],
+    })
+
+    expect(result.assets).toHaveLength(1)
+    expect(result.assets[0]?.displayName).toBe('合成官方专辑·001')
+    expect(result.assets[0]?.sources[0]?.kind).toBe('wechat4')
+    expect(result.assets[0]?.sources[0]?.album).toEqual({
+      kind: 'official',
+      id: 'synthetic.package',
+      name: '合成官方专辑',
+    })
+    expect(result.failures).toEqual([])
+    officialPng.fill(0)
+  })
+
+  it('keeps decrypted official files until the attributed import has finished', async () => {
+    const setup = await fixture()
+    const officialPng = await sharp({
+      create: { width: 11, height: 9, channels: 4, background: '#335577ff' },
+    })
+      .png()
+      .toBuffer()
+    let stagedPath = ''
+    let releaseProgress: () => void = () => undefined
+    const progressGate = new Promise<void>((resolve) => {
+      releaseProgress = resolve
+    })
+    let reportStarted: () => void = () => undefined
+    const firstReport = new Promise<void>((resolve) => {
+      reportStarted = resolve
+    })
+    let held = false
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [] },
+      officialStager: {
+        stage: async ({ stagingDirectory }) => {
+          stagedPath = join(stagingDirectory, 'official.asset')
+          await writeFile(stagedPath, officialPng)
+          return [
+            {
+              path: stagedPath,
+              label: '合成官方专辑·001',
+              packageId: 'synthetic.package',
+              packageName: '合成官方专辑',
+              memberIndex: 0,
+            },
+          ]
+        },
+      },
+    })
+
+    const importing = source.importOfficialAlbums(
+      {
+        accountId: setup.accountId,
+        collection: createDefaultCollection(undefined),
+        collectionDirectory: setup.collectionDirectory,
+        packageIds: ['synthetic.package'],
+      },
+      async () => {
+        if (held) return
+        held = true
+        reportStarted()
+        await progressGate
+      },
+    )
+
+    await firstReport
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    await expect(access(stagedPath)).resolves.toBeUndefined()
+    releaseProgress()
+    const result = await importing
+
+    expect(result.assets).toHaveLength(1)
+    await expect(access(stagedPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    officialPng.fill(0)
+  })
+
+  it('keeps personal imports usable when official-pack staging fails', async () => {
+    const setup = await fixture()
+    const personalPng = await sharp({
+      create: { width: 10, height: 8, channels: 4, background: '#228833ff' },
+    })
+      .png()
+      .toBuffer()
+    const personalMd5 = createHash('md5').update(personalPng).digest('hex')
+    const cacheRoot = join(
+      setup.root,
+      'wxid_synthetic_source_abcd',
+      'business',
+      'emoticon',
+      'Persist',
+      personalMd5.slice(0, 2),
+    )
+    await mkdir(cacheRoot, { recursive: true })
+    await writeFile(join(cacheRoot, personalMd5), personalPng)
+    const source = new Wechat4StickerSource({
+      root: setup.root,
+      temporaryParent: setup.temporaryParent,
+      catalogReader: { read: async () => [record(0, personalMd5)] },
+      officialStager: { stage: async () => Promise.reject(new Error('sensitive detail')) },
+    })
+
+    const result = await source.import({
+      accountId: setup.accountId,
+      collection: createDefaultCollection(undefined),
+      collectionDirectory: setup.collectionDirectory,
+    })
+
+    expect(result.assets).toHaveLength(1)
+    expect(result.failures).toEqual([])
+    expect(JSON.stringify(result)).not.toContain('sensitive detail')
+    personalPng.fill(0)
   })
 })

@@ -450,6 +450,78 @@ private func streamPersonalEmoticons(_ database: OpaquePointer?) throws -> [Stri
   ]
 }
 
+private func nonNegativeBoundedInt(_ statement: OpaquePointer?, _ index: Int32) throws -> Int64 {
+  let value = sqlite3_column_int64(statement, index)
+  // Keep values exactly representable after JSON crosses into JavaScript.
+  guard value >= 0, value <= 9_007_199_254_740_991 else {
+    throw HelperFailure(.unsupportedWechatVersion, "Store emoticon range is unsupported")
+  }
+  return value
+}
+
+private func streamStoreEmoticons(_ database: OpaquePointer?) throws -> [String: Any] {
+  // Store packs are held in PersistStore container files. The user-facing package name and the
+  // identifiers/ranges needed to address those containers cross fd 4. Descriptions and URLs stay
+  // in SQLite.
+  let sql = "SELECT p.package_id_,p.package_name_,p.download_status_,p.remove_time_,"
+    + "f.md5_,f.type_,f.sort_order_,f.emoticon_size_,f.emoticon_offset_,"
+    + "f.thumb_size_,f.thumb_offset_,"
+    + "EXISTS(SELECT 1 FROM kNonStoreEmoticonTable AS n "
+    + "WHERE lower(n.md5)=lower(f.md5_) AND length(n.encrypt_url)>0 AND length(n.aes_key)>0),"
+    + "EXISTS(SELECT 1 FROM kNonStoreEmoticonTable AS n "
+    + "WHERE lower(n.md5)=lower(f.md5_) AND (length(n.thumb_url)>0 OR length(n.tp_url)>0 "
+    + "OR length(n.cdn_url)>0 OR length(n.extern_url)>0 OR length(n.encrypt_url)>0)) "
+    + "FROM kStoreEmoticonPackageTable AS p "
+    + "JOIN kStoreEmoticonFilesTable AS f ON p.package_id_=f.package_id_ "
+    + "WHERE p.remove_time_=0 AND p.download_status_>0 "
+    + "ORDER BY p.sort_order_,p.rowid,f.sort_order_,f.rowid;"
+  var statement: OpaquePointer?
+  guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+    throw HelperFailure(.unsupportedWechatVersion, "Store emoticon schema is unsupported")
+  }
+  defer { sqlite3_finalize(statement) }
+
+  var order = 0
+  var packages = Set<String>()
+  while true {
+    let status = sqlite3_step(statement)
+    if status == SQLITE_DONE { break }
+    guard status == SQLITE_ROW else {
+      throw HelperFailure(.keyValidationFailed, "Encrypted database query failed")
+    }
+    guard order < maximumCatalogRecords else {
+      throw HelperFailure(.unsupportedWechatVersion, "Store emoticon catalog exceeded its limit")
+    }
+    let packageId = try boundedColumnText(statement, 0)
+    let rawPackageName = try boundedColumnText(statement, 1).trimmingCharacters(in: .whitespacesAndNewlines)
+    let packageName = rawPackageName.isEmpty ? "未命名官方专辑" : rawPackageName
+    let md5 = try boundedColumnText(statement, 4).lowercased()
+    guard !packageId.isEmpty, isMD5(md5) else {
+      throw HelperFailure(.unsupportedWechatVersion, "Store emoticon identifier is unsupported")
+    }
+    let record: [String: Any] = [
+      "order": order,
+      "packageId": packageId,
+      "packageName": packageName,
+      "downloadStatus": Int(sqlite3_column_int64(statement, 2)),
+      "removeTime": try nonNegativeBoundedInt(statement, 3),
+      "md5": md5,
+      "type": Int(sqlite3_column_int64(statement, 5)),
+      "sortOrder": Int(sqlite3_column_int64(statement, 6)),
+      "emoticonSize": try nonNegativeBoundedInt(statement, 7),
+      "emoticonOffset": try nonNegativeBoundedInt(statement, 8),
+      "thumbSize": try nonNegativeBoundedInt(statement, 9),
+      "thumbOffset": try nonNegativeBoundedInt(statement, 10),
+      "hasEncryptedRemote": sqlite3_column_int(statement, 11) != 0,
+      "hasAnyRemote": sqlite3_column_int(statement, 12) != 0,
+    ]
+    try writeCatalogJSON(record)
+    packages.insert(packageId)
+    order += 1
+  }
+  return ["recordCount": order, "packageCount": packages.count]
+}
+
 private func readCandidateFrame(databasePath: String) throws -> [UInt8] {
   var frame = [UInt8](repeating: 0, count: candidateFrameBytes)
   defer { for index in frame.indices { frame[index] = 0 } }
@@ -601,7 +673,7 @@ private func handle(_ request: Request) throws -> [String: Any] {
       "keyAcquisition": "unavailable",
       "capabilities": [
         "selfTest", "validateKey", "validateCandidateFd", "schemaOverviewFd",
-        "personalEmoticonsFd",
+        "personalEmoticonsFd", "storeEmoticonsFd",
       ],
     ]
   case "selfTest":
@@ -674,6 +746,30 @@ private func handle(_ request: Request) throws -> [String: Any] {
       "recordCount": counts["recordCount"] ?? 0,
       "favoriteCount": counts["favoriteCount"] ?? 0,
       "customCount": counts["customCount"] ?? 0,
+    ]
+  case "storeEmoticonsFd":
+    guard let path = request.params?["databasePath"] else {
+      throw HelperFailure(.invalidRequest, "storeEmoticonsFd requires databasePath")
+    }
+    var storeCatalogKeyBytes = try readCandidateFrame(databasePath: path)
+    defer { for index in storeCatalogKeyBytes.indices { storeCatalogKeyBytes[index] = 0 } }
+    defer { close(4) }
+    let counts = try withValidatedDatabase(
+      path: path,
+      applyKey: { database in
+        try applyRawKey(database, keyBytes: storeCatalogKeyBytes)
+      }
+    ) { database, _ in
+      try streamStoreEmoticons(database)
+    }
+    return [
+      "verified": true,
+      "formatValidated": true,
+      "cipherIntegrityValidated": true,
+      "schemaQueryValidated": true,
+      "quickCheckValidated": true,
+      "recordCount": counts["recordCount"] ?? 0,
+      "packageCount": counts["packageCount"] ?? 0,
     ]
   case "acquireKey":
     throw HelperFailure(

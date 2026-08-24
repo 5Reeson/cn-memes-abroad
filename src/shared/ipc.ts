@@ -19,12 +19,18 @@ import type {
   SavePreparedSnapshotResult,
   SendPackProgress,
   SendPacksSummary,
+  UsePreparedSnapshotResult,
   WhatsAppConnectionView,
   WhatsAppCredentialMode,
   WhatsAppTarget,
   Wechat4GateStatus,
   Wechat4ImportDiscoveryView,
+  Wechat4OfficialAlbumListResult,
+  WechatAccountKind,
+  WechatAccountPreviewResult,
+  WechatAccountPreviewView,
   WechatDownloadMode,
+  WechatStageDownloadResult,
 } from './domain.js'
 
 export const IPC_CHANNELS = {
@@ -42,14 +48,24 @@ export const IPC_CHANNELS = {
   savePreparedSnapshot: 'exports:save-prepared-snapshot',
   listPreparedSnapshots: 'exports:list-prepared-snapshots',
   getPreparedSnapshot: 'exports:get-prepared-snapshot',
+  usePreparedSnapshot: 'exports:use-prepared-snapshot',
   deletePreparedSnapshot: 'exports:delete-prepared-snapshot',
   importAssets: 'library:import-assets',
   importProgress: 'library:import-progress',
   wechatLegacyDiscover: 'wechat-legacy:discover',
+  wechatPreviewGet: 'wechat-preview:get',
+  wechatLegacyPreview: 'wechat-legacy:preview',
+  wechatLegacyDownload: 'wechat-legacy:download',
   wechatLegacyImport: 'wechat-legacy:import',
   wechatLegacyCancel: 'wechat-legacy:cancel',
   wechatLegacyProgress: 'wechat-legacy:progress',
   wechat4Discover: 'wechat4:discover',
+  wechat4Preview: 'wechat4:preview',
+  wechat4Download: 'wechat4:download',
+  wechat4OfficialAlbums: 'wechat4:official-albums',
+  wechat4OfficialAlbumPreview: 'wechat4:official-album-preview',
+  wechat4OfficialAlbumsImport: 'wechat4:official-albums-import',
+  wechatStagedImportCommit: 'wechat-staged-import:commit',
   wechat4Import: 'wechat4:import',
   wechat4Cancel: 'wechat4:cancel',
   wechat4FavoritesReady: 'wechat4:favorites-ready',
@@ -88,15 +104,49 @@ export interface StickerAppApi {
   savePreparedSnapshot(forceDuplicate?: boolean): Promise<SavePreparedSnapshotResult>
   listPreparedSnapshots(): Promise<PreparedSnapshotSummary[]>
   getPreparedSnapshot(id: string): Promise<PreparedSnapshotView>
+  usePreparedSnapshot(id: string): Promise<UsePreparedSnapshotResult>
   deletePreparedSnapshot(id: string): Promise<boolean>
   importAssets(mode: ImportMode): Promise<ImportSummary>
   discoverLegacyWechat(): Promise<LegacyWechatDiscoveryView>
+  getWechatAccountPreview(
+    accountKind: WechatAccountKind,
+    accountId: string,
+  ): Promise<WechatAccountPreviewView | undefined>
+  previewLegacyWechat(
+    accountId: string,
+    downloadMode: LegacyWechatDownloadMode,
+  ): Promise<WechatAccountPreviewResult>
+  downloadLegacyWechat(
+    accountId: string,
+    downloadMode: LegacyWechatDownloadMode,
+  ): Promise<WechatStageDownloadResult>
   importLegacyWechat(
     accountId: string,
     downloadMode: LegacyWechatDownloadMode,
   ): Promise<ImportSummary>
   cancelLegacyWechatImport(): Promise<boolean>
   discoverWechat4(): Promise<Wechat4ImportDiscoveryView>
+  previewWechat4(
+    accountId: string,
+    confirmed: boolean,
+    downloadMode: WechatDownloadMode,
+  ): Promise<WechatAccountPreviewResult>
+  downloadWechat4(
+    accountId: string,
+    confirmed: boolean,
+    downloadMode: WechatDownloadMode,
+  ): Promise<WechatStageDownloadResult>
+  listWechat4OfficialAlbums(accountId: string): Promise<Wechat4OfficialAlbumListResult>
+  previewWechat4OfficialAlbum(
+    accountId: string,
+    packageId: string,
+  ): Promise<WechatAccountPreviewResult>
+  importWechat4OfficialAlbums(accountId: string, packageIds: string[]): Promise<ImportSummary>
+  commitWechatStagedImport(
+    accountKind: WechatAccountKind,
+    accountId: string,
+    selectedAssetIds: string[],
+  ): Promise<ImportSummary>
   importWechat4(
     accountId: string,
     confirmed: boolean,

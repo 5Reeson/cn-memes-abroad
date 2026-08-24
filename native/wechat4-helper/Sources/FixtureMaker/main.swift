@@ -175,6 +175,19 @@ do {
     try execute(database, "CREATE TABLE kCustomEmoticonOrderTable(md5 TEXT);")
     try execute(
       database,
+      "CREATE TABLE kStoreEmoticonPackageTable("
+        + "package_id_ TEXT,package_name_ TEXT,download_status_ INTEGER,"
+        + "remove_time_ INTEGER,sort_order_ INTEGER);"
+    )
+    try execute(
+      database,
+      "CREATE TABLE kStoreEmoticonFilesTable("
+        + "package_id_ TEXT,md5_ TEXT,type_ INTEGER,sort_order_ INTEGER,"
+        + "emoticon_size_ INTEGER,emoticon_offset_ INTEGER,"
+        + "thumb_size_ INTEGER,thumb_offset_ INTEGER);"
+    )
+    try execute(
+      database,
       "INSERT INTO kNonStoreEmoticonTable VALUES"
         + "(1,'00000000000000000000000000000001','synthetic-caption-one',"
         + "'https://synthetic.invalid/thumb-one','','https://synthetic.invalid/cdn-one',"
@@ -196,6 +209,19 @@ do {
       "INSERT INTO kCustomEmoticonOrderTable(md5) VALUES"
         + "('00000000000000000000000000000001'),"
         + "('00000000000000000000000000000003');"
+    )
+    try execute(
+      database,
+      "INSERT INTO kStoreEmoticonPackageTable VALUES"
+        + "('10000000000000000000000000000001','合成专辑一',2,0,4),"
+        + "('10000000000000000000000000000002','合成专辑二',2,0,5);"
+    )
+    try execute(
+      database,
+      "INSERT INTO kStoreEmoticonFilesTable VALUES"
+        + "('10000000000000000000000000000001','20000000000000000000000000000001',1,1,20,10,8,30),"
+        + "('10000000000000000000000000000001','20000000000000000000000000000002',2,2,40,38,6,78),"
+        + "('10000000000000000000000000000002','20000000000000000000000000000003',1,1,12,4,5,16);"
     )
   }
   guard sqlite3_close_v2(database) == SQLITE_OK else {

@@ -41,7 +41,7 @@ function fixtureCollection(id: string) {
     {
       id: 'default',
       title: '我的表情',
-      publisher: 'Memes Abroad',
+      publisher: '图渡',
       packSize: 30,
       selectedAssetIds: [],
       assets: [

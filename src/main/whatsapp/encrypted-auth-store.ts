@@ -34,14 +34,14 @@ export class EncryptedAuthStore implements WhatsAppAuthStore {
       encrypted = await readFile(this.path)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw new Error('无法读取钥匙串保护的 WhatsApp session', { cause: error })
+      throw new Error('无法读取钥匙串保护的 WhatsApp 登录凭证', { cause: error })
     }
     this.assertEncryptionAvailable()
     try {
       const plaintext = safeStorage.decryptString(encrypted)
       return JSON.parse(plaintext, BufferJSON.reviver) as StoredAuthState
     } catch (error) {
-      throw new Error('无法解密 WhatsApp session；请清除登录后重新关联', { cause: error })
+      throw new Error('无法解密 WhatsApp 登录凭证；请清除登录后重新关联', { cause: error })
     }
   }
 
@@ -63,7 +63,7 @@ export class EncryptedAuthStore implements WhatsAppAuthStore {
     try {
       await this.saveQueue
     } catch (error) {
-      throw new Error('无法保存钥匙串保护的 WhatsApp session', { cause: error })
+      throw new Error('无法保存钥匙串保护的 WhatsApp 登录凭证', { cause: error })
     }
   }
 
@@ -85,7 +85,7 @@ export class EncryptedAuthStore implements WhatsAppAuthStore {
       await unlink(this.path)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw new Error('无法删除钥匙串保护的 WhatsApp session', { cause: error })
+        throw new Error('无法删除钥匙串保护的 WhatsApp 登录凭证', { cause: error })
       }
     }
   }

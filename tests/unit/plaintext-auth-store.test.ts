@@ -63,7 +63,7 @@ describe('PlaintextAuthStore', () => {
     const failure = await auth.saveCreds().catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(Error)
-    expect((failure as Error).message).toBe('无法保存本地明文 WhatsApp session')
+    expect((failure as Error).message).toBe('无法保存本地明文 WhatsApp 登录凭证')
     expect((failure as Error).message).not.toContain(root)
   })
 })

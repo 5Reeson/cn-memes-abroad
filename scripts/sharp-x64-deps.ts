@@ -42,21 +42,31 @@ function x64Specs(): string[] {
 }
 
 function isX64Present(): boolean {
-  const binary = join(packageDirectory('@img/sharp-darwin-x64'), 'lib/sharp-darwin-x64.node')
+  const binaryDirectory = join(packageDirectory('@img/sharp-darwin-x64'), 'lib')
   const libvipsDirectory = join(packageDirectory('@img/sharp-libvips-darwin-x64'), 'lib')
+  const hasBinary =
+    existsSync(binaryDirectory) &&
+    readdirSync(binaryDirectory).some(
+      (file) => file.startsWith('sharp-darwin-x64') && file.endsWith('.node'),
+    )
   const hasLibvips =
     existsSync(libvipsDirectory) &&
     readdirSync(libvipsDirectory).some((file) => file.startsWith('libvips-cpp'))
-  return existsSync(binary) && hasLibvips
+  return hasBinary && hasLibvips
 }
 
 function isArm64Present(): boolean {
-  const binary = join(packageDirectory('@img/sharp-darwin-arm64'), 'lib/sharp-darwin-arm64.node')
+  const binaryDirectory = join(packageDirectory('@img/sharp-darwin-arm64'), 'lib')
   const libvipsDirectory = join(packageDirectory('@img/sharp-libvips-darwin-arm64'), 'lib')
+  const hasBinary =
+    existsSync(binaryDirectory) &&
+    readdirSync(binaryDirectory).some(
+      (file) => file.startsWith('sharp-darwin-arm64') && file.endsWith('.node'),
+    )
   const hasLibvips =
     existsSync(libvipsDirectory) &&
     readdirSync(libvipsDirectory).some((file) => file.startsWith('libvips-cpp'))
-  return existsSync(binary) && hasLibvips
+  return hasBinary && hasLibvips
 }
 
 function npmInstall(specs: string[]): void {

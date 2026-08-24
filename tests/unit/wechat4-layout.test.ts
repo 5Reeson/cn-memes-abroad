@@ -9,6 +9,7 @@ import {
   discoverWechat4EmoticonTargets,
   removeWechat4Snapshot,
   resolveWechat4EmoticonCache,
+  resolveWechat4StoreLayout,
   snapshotWechat4Database,
 } from '../../src/main/sources/wechat4/wechat4-layout.js'
 
@@ -56,7 +57,7 @@ describe('WeChat 4 layout discovery and snapshots', () => {
     expect(result).toMatchObject({ rootFound: true, permissionDenied: false, failures: [] })
     expect(result.accounts).toHaveLength(1)
     expect(result.accounts[0]).toMatchObject({
-      label: '微信 4.x 账号 · abcd',
+      label: '新版微信账号 abcd',
       walPresent: true,
       shmPresent: true,
       keyMetadataPresent: true,
@@ -124,5 +125,28 @@ describe('WeChat 4 layout discovery and snapshots', () => {
     await expect(resolveWechat4EmoticonCache(account!.id, '../not-an-md5', root)).rejects.toThrow(
       /identifier/i,
     )
+  })
+
+  it('resolves only catalog-named official pack containers without exposing them in discovery', async () => {
+    const { root } = await fixtureRoot()
+    const [account] = (await discoverWechat4(root)).accounts
+    const packageId = '10000000000000000000000000000001'
+    const containerName = '26f42cefcd90010f2cb017a1df7a5b8e'
+    const storeRoot = join(
+      root,
+      'wxid_synthetic_account_abcd',
+      'business',
+      'emoticon',
+      'PersistStore',
+      '26',
+    )
+    await mkdir(storeRoot, { recursive: true })
+    await writeFile(join(storeRoot, containerName), 'synthetic official container')
+    await writeFile(join(storeRoot, '00000000000000000000000000000000'), 'unrelated container')
+
+    const resolved = await resolveWechat4StoreLayout(account!.id, [packageId], root)
+    expect(resolved.accountDirectoryName).toBe('wxid_synthetic_account_abcd')
+    expect(resolved.containers).toEqual(new Map([[packageId, join(storeRoot, containerName)]]))
+    expect(JSON.stringify(await discoverWechat4(root))).not.toContain('PersistStore')
   })
 })

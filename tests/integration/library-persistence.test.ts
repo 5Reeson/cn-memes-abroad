@@ -79,7 +79,7 @@ describe('local library persistence', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-aaaaaaaaaaaaaaaa',
-        sourceLabel: '微信 4.x 账号 · 0001',
+        sourceLabel: '新版微信账号 · 0001',
       },
     )
     const afterFirst = await store.save({ ...initial, assets: first.assets })
@@ -88,7 +88,7 @@ describe('local library persistence', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-bbbbbbbbbbbbbbbb',
-        sourceLabel: '微信 4.x 账号 · 0002',
+        sourceLabel: '新版微信账号 · 0002',
       },
     )
     const updates = new Map(second.sourceUpdates.map((asset) => [asset.id, asset]))

@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
+import { ArchiveIcon as Archive } from '@phosphor-icons/react/Archive'
 import { ExportIcon as Export } from '@phosphor-icons/react/Export'
 import { GearSixIcon as GearSix } from '@phosphor-icons/react/GearSix'
 import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { LinkIcon as Link } from '@phosphor-icons/react/Link'
 import { SmileyIcon as Smiley } from '@phosphor-icons/react/Smiley'
 
-export type AppPage = 'export' | 'library' | 'connections' | 'settings' | 'about'
+export type AppPage = 'export' | 'library' | 'archives' | 'connections' | 'settings' | 'about'
 
 export function AppShell({
   page,
@@ -21,6 +22,7 @@ export function AppShell({
   const items = [
     { id: 'export' as const, label: '导出表情包', icon: Export },
     { id: 'library' as const, label: '我的表情库', icon: Smiley },
+    { id: 'archives' as const, label: '表情分组存档', icon: Archive },
     { id: 'connections' as const, label: '连接到 App', icon: Link },
     { id: 'settings' as const, label: '设置', icon: GearSix },
   ]
@@ -28,12 +30,9 @@ export function AppShell({
     <div className={`product-shell${rail ? ' has-rail' : ''}`}>
       <div className="window-drag-region" aria-hidden="true" />
       <aside className="product-sidebar">
-        <div className="product-brand" aria-label="Memes Abroad">
-          <span>
-            梗<br />
-            出海
-          </span>
-          <strong>Memes Abroad</strong>
+        <div className="product-brand" aria-label="图渡">
+          <span>图渡</span>
+          <strong>图渡</strong>
         </div>
         <nav aria-label="主导航">
           {items.map(({ id, label, icon: Icon }) => (

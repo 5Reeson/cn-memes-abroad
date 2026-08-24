@@ -14,6 +14,7 @@ import type {
   WhatsAppCredentialMode,
   WhatsAppTarget,
 } from '../../shared/domain.js'
+import { isWhatsAppConnectionActive } from '../../shared/whatsapp-connection.js'
 import type { PreparedPack } from '../packs/pack-preparer.js'
 import { hasPairedCredentials } from './auth-store.js'
 import { CredentialAuthStore } from './credential-auth-store.js'
@@ -70,26 +71,13 @@ export class WhatsAppManager {
     this.view = {
       ...next,
       credentialMode: this.authStore.getMode(),
-      canChangeCredentialMode:
-        !next.hasSession &&
-        ![
-          'connecting',
-          'reconnecting',
-          'awaiting-qr',
-          'awaiting-pairing-code',
-          'connected',
-        ].includes(next.phase),
+      canChangeCredentialMode: !next.hasSession && !isWhatsAppConnectionActive(next.phase),
     }
     this.onStatus(this.view)
   }
 
   async setCredentialMode(mode: WhatsAppCredentialMode): Promise<WhatsAppConnectionView> {
-    if (
-      this.socket ||
-      ['connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code', 'connected'].includes(
-        this.view.phase,
-      )
-    ) {
+    if (this.socket || isWhatsAppConnectionActive(this.view.phase)) {
       throw new Error('请先断开 WhatsApp 连接，再切换凭证存储方式')
     }
     await this.authStore.setMode(mode)
@@ -98,8 +86,8 @@ export class WhatsAppManager {
       hasSession: false,
       message:
         mode === 'keychain'
-          ? '将使用 macOS 钥匙串保护 WhatsApp session。'
-          : '将使用权限受限的本地明文文件保存 WhatsApp session。',
+          ? '将使用 macOS 钥匙串保护登录凭证，安全性较高'
+          : '将使用本地明文文件保存登录凭证，可避免授权，但安全性可能较低',
     })
     return this.view
   }
@@ -110,11 +98,7 @@ export class WhatsAppManager {
   }
 
   async connect(pairingPhone?: string): Promise<WhatsAppConnectionView> {
-    if (
-      ['connected', 'connecting', 'reconnecting', 'awaiting-qr', 'awaiting-pairing-code'].includes(
-        this.view.phase,
-      )
-    ) {
+    if (isWhatsAppConnectionActive(this.view.phase)) {
       return this.view
     }
     const phone = pairingPhone?.replace(/\D/g, '')
@@ -143,7 +127,10 @@ export class WhatsAppManager {
     return this.view
   }
 
-  private async openSocket(pairingPhone?: string): Promise<void> {
+  private async openSocket(
+    pairingPhone?: string,
+    browserMode: 'qr' | 'phone' = pairingPhone ? 'phone' : 'qr',
+  ): Promise<void> {
     const { state, saveCreds } = await this.authStore.load()
     const hasSession = hasPairedCredentials(state.creds)
     this.update({
@@ -152,9 +139,10 @@ export class WhatsAppManager {
       message: hasSession ? '正在复用已保存的 session…' : '正在建立连接…',
     })
 
+    const browser = browserMode === 'phone' ? Browsers.macOS('Chrome') : Browsers.macOS('Desktop')
     const socket = makeWASocket({
       auth: state,
-      browser: Browsers.macOS('Desktop'),
+      browser,
       logger,
       markOnlineOnConnect: false,
       syncFullHistory: false,
@@ -205,9 +193,9 @@ export class WhatsAppManager {
             this.update({
               phase: 'reconnecting',
               hasSession: true,
-              message: '关联完成，正在复用新 session 重新连接…',
+              message: '关联完成，正在复用新登录凭证重新连接…',
             })
-            await this.openSocket()
+            await this.openSocket(undefined, browserMode)
           } else if (code === DisconnectReason.loggedOut) {
             await this.authStore.clear()
             this.update({
@@ -233,6 +221,10 @@ export class WhatsAppManager {
     })
 
     if (pairingPhone && !hasSession) {
+      // requestPairingCode must be sent after the noise handshake completes,
+      // otherwise Baileys' sendRawMessage rejects with "Connection Closed".
+      // `qr` is only emitted once the transport is ready, so wait for it.
+      await socket.waitForConnectionUpdate(async (update) => update.qr !== undefined)
       const pairingCode = await socket.requestPairingCode(pairingPhone)
       this.update({ phase: 'awaiting-pairing-code', hasSession: false, pairingCode })
     }

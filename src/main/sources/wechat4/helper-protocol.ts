@@ -8,6 +8,7 @@ export type Wechat4HelperMethod =
   | 'validateCandidateFd'
   | 'schemaOverviewFd'
   | 'personalEmoticonsFd'
+  | 'storeEmoticonsFd'
   | 'acquireKey'
 
 export type Wechat4HelperErrorCode =

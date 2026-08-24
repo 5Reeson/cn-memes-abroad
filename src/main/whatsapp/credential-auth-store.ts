@@ -26,7 +26,7 @@ export class CredentialAuthStore implements WhatsAppAuthStore {
     await this.initialize()
     if (mode === this.mode) return
     if ((await this.keychainStore.hasSession()) || (await this.plaintextStore.hasSession())) {
-      throw new Error('已有 WhatsApp session，请先登出后再切换凭证存储方式')
+      throw new Error('已有 WhatsApp 登录凭证，请先登出后再切换凭证存储方式')
     }
     await this.modeStore.save(mode)
     this.mode = mode

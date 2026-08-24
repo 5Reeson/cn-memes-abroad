@@ -175,7 +175,7 @@ async function connectAndRun(options: Options): Promise<'done' | 'restart'> {
             resolvePromise('restart')
           } else if (code === DisconnectReason.loggedOut) {
             rejectPromise(
-              new Error('WhatsApp 已注销此 session；请手动删除 .phase0/session 后重新登录。'),
+              new Error('WhatsApp 已注销此登录凭证；请手动删除 .phase0/session 后重新登录。'),
             )
           } else if (code !== undefined) {
             rejectPromise(new Error(`WhatsApp connection closed with status ${code}`))
@@ -199,7 +199,7 @@ async function main(): Promise<void> {
   // A successful first pairing normally asks the desktop client to restart.
   // Re-enter once using the newly written credentials, then continue the flow.
   while ((await connectAndRun(options)) === 'restart') {
-    console.log('WhatsApp 要求关联后重启连接；正在复用刚保存的 session 继续…')
+    console.log('WhatsApp 要求关联后重启连接；正在复用刚保存的登录凭证继续…')
   }
 }
 

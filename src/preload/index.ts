@@ -30,14 +30,38 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.savePreparedSnapshot, forceDuplicate),
   listPreparedSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.listPreparedSnapshots),
   getPreparedSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.getPreparedSnapshot, id),
+  usePreparedSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.usePreparedSnapshot, id),
   deletePreparedSnapshot: (id: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.deletePreparedSnapshot, id),
   importAssets: (mode: ImportMode) => ipcRenderer.invoke(IPC_CHANNELS.importAssets, mode),
   discoverLegacyWechat: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDiscover),
+  getWechatAccountPreview: (accountKind, accountId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatPreviewGet, accountKind, accountId),
+  previewLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyPreview, accountId, downloadMode),
+  downloadLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyDownload, accountId, downloadMode),
   importLegacyWechat: (accountId: string, downloadMode: LegacyWechatDownloadMode) =>
     ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyImport, accountId, downloadMode),
   cancelLegacyWechatImport: () => ipcRenderer.invoke(IPC_CHANNELS.wechatLegacyCancel),
   discoverWechat4: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Discover),
+  previewWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4Preview, accountId, confirmed, downloadMode),
+  downloadWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4Download, accountId, confirmed, downloadMode),
+  listWechat4OfficialAlbums: (accountId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbums, accountId),
+  previewWechat4OfficialAlbum: (accountId: string, packageId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbumPreview, accountId, packageId),
+  importWechat4OfficialAlbums: (accountId: string, packageIds: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.wechat4OfficialAlbumsImport, accountId, packageIds),
+  commitWechatStagedImport: (accountKind, accountId, selectedAssetIds) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.wechatStagedImportCommit,
+      accountKind,
+      accountId,
+      selectedAssetIds,
+    ),
   importWechat4: (accountId: string, confirmed: boolean, downloadMode: WechatDownloadMode) =>
     ipcRenderer.invoke(IPC_CHANNELS.wechat4Import, accountId, confirmed, downloadMode),
   cancelWechat4Import: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Cancel),

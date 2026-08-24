@@ -24,7 +24,7 @@ export class PlaintextAuthStore implements WhatsAppAuthStore {
       return JSON.parse(await readFile(this.path, 'utf8'), BufferJSON.reviver) as StoredAuthState
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw new Error('无法读取本地明文 WhatsApp session；请清除登录后重新关联', {
+      throw new Error('无法读取本地明文 WhatsApp 登录凭证；请清除登录后重新关联', {
         cause: error,
       })
     }
@@ -54,7 +54,7 @@ export class PlaintextAuthStore implements WhatsAppAuthStore {
     try {
       await this.saveQueue
     } catch (error) {
-      throw new Error('无法保存本地明文 WhatsApp session', { cause: error })
+      throw new Error('无法保存本地明文 WhatsApp 登录凭证', { cause: error })
     }
   }
 
@@ -75,7 +75,7 @@ export class PlaintextAuthStore implements WhatsAppAuthStore {
       await unlink(this.path)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw new Error('无法删除本地明文 WhatsApp session', { cause: error })
+        throw new Error('无法删除本地明文 WhatsApp 登录凭证', { cause: error })
       }
     }
   }

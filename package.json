@@ -1,6 +1,6 @@
 {
   "name": "cn-memes-abroad",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app for organizing Chinese stickers and sending them to WhatsApp",
@@ -30,10 +30,15 @@
     "phase7:gate-g": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/run-wechat4-gate-g.ts",
     "phase7:lifecycle:test": "npm run phase7:helper:build && node --import tsx scripts/test-wechat4-lifecycle.ts",
     "phase7:app-copy:test": "node --import tsx scripts/test-wechat4-app-copy.ts",
+    "phase8:store-instrumentation:build": "sh native/wechat4-store-instrumentation/build.sh",
+    "phase8:store-instrumentation:test": "npm run phase8:store-instrumentation:build && node --import tsx scripts/test-wechat4-store-instrumentation.ts",
+    "phase8:store-gate-8:preflight": "npm run phase7:helper:build && npm run phase8:store-instrumentation:build && NODE_OPTIONS=--import=tsx electron scripts/run-wechat4-store-gate-8.ts --preflight",
+    "phase8:store-gate-8": "npm run phase7:helper:build && npm run phase8:store-instrumentation:build && NODE_OPTIONS=--import=tsx electron scripts/run-wechat4-store-gate-8.ts",
+    "phase8:official:smoke": "NODE_OPTIONS=--import=tsx electron scripts/smoke-wechat4-official-stager.ts",
     "postinstall": "patch-package"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",
@@ -47,7 +52,7 @@
     "qrcode-terminal": "0.12.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": "0.34.5"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -71,7 +76,7 @@
   },
   "build": {
     "appId": "com.cnmemesabroad.desktop",
-    "productName": "CN Memes Abroad",
+    "productName": "图渡",
     "asar": true,
     "artifactName": "${name}-${version}-${arch}.${ext}",
     "files": [
@@ -91,6 +96,7 @@
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,
+      "minimumSystemVersion": "13.0",
       "target": [
         "dmg",
         "zip"

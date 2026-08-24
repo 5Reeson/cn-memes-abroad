@@ -6,6 +6,7 @@ export type AssetPickerSort = 'user-order' | 'source-order' | 'imported-newest' 
 export interface AssetPickerFilter {
   query?: string
   sourceKinds?: StickerSourceKind[]
+  albumIds?: string[]
   sourceIds?: string[]
   sourceAccountIds?: string[]
   manualImportIds?: string[]
@@ -24,6 +25,7 @@ export function filterAndSortAssets<T extends StickerAsset>(
 ): T[] {
   const query = filter.query?.trim().toLocaleLowerCase('zh-Hans-CN') ?? ''
   const sourceKinds = new Set(filter.sourceKinds ?? [])
+  const albumIds = new Set(filter.albumIds ?? [])
   const sourceIds = new Set(filter.sourceIds ?? [])
   const sourceAccountIds = new Set(filter.sourceAccountIds ?? [])
   const manualImportIds = new Set(filter.manualImportIds ?? [])
@@ -33,6 +35,19 @@ export function filterAndSortAssets<T extends StickerAsset>(
     if (media === 'static' && asset.animated) return false
     if (media === 'animated' && !asset.animated) return false
     if (sourceKinds.size > 0 && !asset.sources.some((source) => sourceKinds.has(source.kind))) {
+      return false
+    }
+    if (
+      albumIds.size > 0 &&
+      !asset.sources.some((source) => {
+        const albumId =
+          source.album?.id ??
+          (source.kind === 'wechat4' || source.kind === 'wechat-legacy'
+            ? 'wechat-personal'
+            : undefined)
+        return albumId !== undefined && albumIds.has(albumId)
+      })
+    ) {
       return false
     }
     if (sourceIds.size > 0 && !asset.sources.some((source) => sourceIds.has(source.id))) {

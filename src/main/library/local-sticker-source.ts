@@ -9,6 +9,7 @@ import type {
   ImportProgress,
   ImportResult,
   StickerAsset,
+  StickerAlbumRef,
   StickerAssetSource,
   StickerCollection,
   StickerSource,
@@ -49,6 +50,7 @@ export interface ImportAttribution {
   sourceId?: string
   sourceLabel?: string
   importBatchId?: string
+  sourceAlbum?: StickerAlbumRef | ((path: string, index: number) => StickerAlbumRef | undefined)
   displayName?: (path: string, index: number) => string
 }
 
@@ -193,12 +195,24 @@ function nextOrder(assets: readonly StickerAsset[], key: 'sourceOrder' | 'userOr
   return assets.reduce((highest, asset) => Math.max(highest, asset[key]), -1) + 1
 }
 
-function sourceReference(attribution: ImportAttribution, importedAt: string): StickerAssetSource {
+function sourceReference(
+  attribution: ImportAttribution,
+  importedAt: string,
+  path?: string,
+  index?: number,
+): StickerAssetSource {
+  const album =
+    typeof attribution.sourceAlbum === 'function'
+      ? path === undefined || index === undefined
+        ? undefined
+        : attribution.sourceAlbum(path, index)
+      : attribution.sourceAlbum
   const importBatchId =
     attribution.importBatchId ??
     (attribution.sourceAccountId === undefined ? `local-import-${randomUUID()}` : undefined)
-  const identity =
+  const baseIdentity =
     attribution.sourceAccountId ?? importBatchId ?? `${attribution.sourceKind}-${randomUUID()}`
+  const identity = album ? `${baseIdentity}|album:${album.id}` : baseIdentity
   const id =
     attribution.sourceId ??
     `source-${createHash('sha256')
@@ -209,8 +223,8 @@ function sourceReference(attribution: ImportAttribution, importedAt: string): St
     attribution.sourceKind === 'local'
       ? '本机导入'
       : attribution.sourceKind === 'wechat4'
-        ? '微信 4.x 账号'
-        : '微信旧版账号'
+        ? '新版微信账号'
+        : '旧版微信账号'
   return {
     id,
     kind: attribution.sourceKind,
@@ -219,6 +233,7 @@ function sourceReference(attribution: ImportAttribution, importedAt: string): St
       ? {}
       : { accountId: attribution.sourceAccountId }),
     ...(importBatchId === undefined ? {} : { importBatchId }),
+    ...(album === undefined ? {} : { album: { ...album } }),
     importedAt,
   }
 }
@@ -288,7 +303,6 @@ export class LocalStickerSource implements StickerSource {
     let sourceOrder = nextOrder(request.collection.assets, 'sourceOrder')
     let userOrder = nextOrder(request.collection.assets, 'userOrder')
     const batchImportedAt = new Date().toISOString()
-    const source = sourceReference(attribution, batchImportedAt)
     const total = discovery.files.length + discovery.failures.length
     let completed = discovery.failures.length
 
@@ -310,6 +324,7 @@ export class LocalStickerSource implements StickerSource {
       request.signal?.throwIfAborted()
       for (const [inputIndex, path] of discovery.files.entries()) {
         try {
+          const source = sourceReference(attribution, batchImportedAt, path, inputIndex)
           request.signal?.throwIfAborted()
           const inspected = await inspectImage(path)
           request.signal?.throwIfAborted()

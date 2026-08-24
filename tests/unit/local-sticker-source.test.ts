@@ -211,7 +211,7 @@ describe('LocalStickerSource', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-account-a',
-        sourceLabel: '微信 4.x 账号 · 0001',
+        sourceLabel: '新版微信账号 · 0001',
       },
     )
     const second = await importer.importAttributed(
@@ -219,7 +219,7 @@ describe('LocalStickerSource', () => {
       {
         sourceKind: 'wechat4',
         sourceAccountId: 'wechat4-account-b',
-        sourceLabel: '微信 4.x 账号 · 0002',
+        sourceLabel: '新版微信账号 · 0002',
       },
     )
 
@@ -229,6 +229,37 @@ describe('LocalStickerSource', () => {
     expect(second.sourceUpdates[0]?.sources.map((item) => item.accountId)).toEqual([
       'wechat4-account-a',
       'wechat4-account-b',
+    ])
+    expect(new Set(second.sourceUpdates[0]?.sources.map((item) => item.id)).size).toBe(2)
+  })
+
+  it('retains two official album sources from the same account after de-duplication', async () => {
+    const source = join(temporaryDirectory, 'same-official.png')
+    const collectionDirectory = join(temporaryDirectory, 'collection-official')
+    await sharp({ create: { width: 12, height: 12, channels: 4, background: '#775544' } })
+      .png()
+      .toFile(source)
+    const importer = new LocalStickerSource()
+    const first = await importer.importAttributed(
+      { collection: collection(), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-a',
+        sourceAlbum: { kind: 'official', id: 'album-a', name: '专辑 A' },
+      },
+    )
+    const second = await importer.importAttributed(
+      { collection: collection(first.assets), collectionDirectory, inputs: [source] },
+      {
+        sourceKind: 'wechat4',
+        sourceAccountId: 'wechat4-account-a',
+        sourceAlbum: { kind: 'official', id: 'album-b', name: '专辑 B' },
+      },
+    )
+
+    expect(second.sourceUpdates[0]?.sources.map((item) => item.album?.id)).toEqual([
+      'album-a',
+      'album-b',
     ])
     expect(new Set(second.sourceUpdates[0]?.sources.map((item) => item.id)).size).toBe(2)
   })

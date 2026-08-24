@@ -56,7 +56,7 @@ export class PreparedSnapshotStore {
   }
 
   async save(prepared: PreparedExportResult, forceDuplicate = false): Promise<SnapshotSaveResult> {
-    assertSavablePreparation(prepared)
+    const orderedAssetIds = assertSavablePreparation(prepared)
     const existing = (await this.list()).find(
       (snapshot) => snapshot.contentFingerprint === prepared.fingerprint,
     )
@@ -88,7 +88,7 @@ export class PreparedSnapshotStore {
         ...(prepared.publisher === undefined ? {} : { publisher: prepared.publisher }),
         destination: prepared.destination,
         configuration: prepared.configuration,
-        orderedAssetIds: [...prepared.orderedAssetIds],
+        orderedAssetIds,
         groups,
         conversionVersion: prepared.conversionVersion,
         contentFingerprint: prepared.fingerprint,
@@ -340,14 +340,18 @@ export function assertPreparedSnapshotManifest(
   }
 }
 
-function assertSavablePreparation(prepared: PreparedExportResult): void {
+/**
+ * Snapshots persist the successfully prepared subset of the selection: asset-level
+ * failures and informational warnings do not block saving, but a failed group has no
+ * payloads to represent it and therefore does. Returns the ordered asset IDs covered
+ * by sticker payloads, in selection order.
+ */
+function assertSavablePreparation(prepared: PreparedExportResult): string[] {
   if (
     prepared.groups.length === 0 ||
-    prepared.groups.some((group) => group.status !== 'prepared') ||
-    prepared.warnings.length > 0 ||
-    prepared.assetFailures.length > 0
+    prepared.groups.some((group) => group.status !== 'prepared')
   ) {
-    throw new Error('准备结果仍有失败或规则提示，不能保存为完整 snapshot')
+    throw new Error('存在准备失败的分组，不能保存 snapshot')
   }
   const stickerIds = prepared.groups.flatMap((group) =>
     group.payloads
@@ -357,13 +361,15 @@ function assertSavablePreparation(prepared: PreparedExportResult): void {
       )
       .map((payload) => payload.assetId),
   )
+  const preparedIds = new Set(stickerIds)
+  const orderedAssetIds = prepared.orderedAssetIds.filter((id) => preparedIds.has(id))
   if (
-    stickerIds.length !== prepared.orderedAssetIds.length ||
-    new Set(stickerIds).size !== stickerIds.length ||
-    stickerIds.some((id) => !prepared.orderedAssetIds.includes(id))
+    orderedAssetIds.length !== stickerIds.length ||
+    new Set(orderedAssetIds).size !== orderedAssetIds.length
   ) {
-    throw new Error('准备结果未完整包含本次选择，不能保存 snapshot')
+    throw new Error('准备结果与本次选择不一致，不能保存 snapshot')
   }
+  return orderedAssetIds
 }
 
 function assertSnapshotGroup(

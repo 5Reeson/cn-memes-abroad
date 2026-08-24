@@ -138,8 +138,9 @@ export class ManifestStore {
   async save(collection: StickerCollection): Promise<StickerCollection> {
     assertManifest(collection)
     const timestamp = this.now().toISOString()
+    const normalized = normalizeWechatSourceLabels(collection).collection
     const candidate = {
-      ...collection,
+      ...normalized,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       updatedAt: timestamp,
     }
@@ -174,7 +175,12 @@ export class ManifestStore {
         return { kind: 'valid', collection: migrateVersion1Manifest(parsed), migrated: true }
       }
       assertManifest(parsed)
-      return { kind: 'valid', collection: parsed, migrated: false }
+      const normalized = normalizeWechatSourceLabels(parsed)
+      return {
+        kind: 'valid',
+        collection: normalized.collection,
+        migrated: normalized.changed,
+      }
     } catch (error) {
       return { kind: 'invalid', error }
     }
@@ -254,7 +260,7 @@ export function createDefaultCollection(
     schemaVersion: CURRENT_SCHEMA_VERSION,
     id: 'default',
     title: '我的贴纸',
-    publisher: 'CN Memes Abroad',
+    publisher: '图渡',
     packSize: 30,
     assets: [],
     selectedAssetIds: [],
@@ -417,6 +423,16 @@ function assertAssetSource(value: unknown): asserts value is StickerAssetSource 
   if (value.importBatchId !== undefined) {
     assertNonEmptyString(value.importBatchId, 'assets[].sources[].importBatchId')
   }
+  if (value.album !== undefined) {
+    if (!isRecord(value.album)) {
+      throw new ManifestReadError('Collection manifest assets[].sources[].album is invalid')
+    }
+    if (value.album.kind !== 'personal' && value.album.kind !== 'official') {
+      throw new ManifestReadError('Collection manifest assets[].sources[].album.kind is invalid')
+    }
+    assertNonEmptyString(value.album.id, 'assets[].sources[].album.id')
+    assertNonEmptyString(value.album.name, 'assets[].sources[].album.name')
+  }
   assertIsoTimestamp(value.importedAt, 'assets[].sources[].importedAt')
 }
 
@@ -432,7 +448,38 @@ function legacySourceId(kind: StickerSourceKind, accountId: string | undefined):
 function legacySourceLabel(kind: StickerSourceKind, accountId: string | undefined): string {
   if (kind === 'local') return '旧版本机导入'
   const suffix = accountId ? ` · ${accountId.slice(-4)}` : ''
-  return `${kind === 'wechat4' ? '微信 4.x 账号' : '微信旧版账号'}${suffix}`
+  return `${kind === 'wechat4' ? '新版微信账号' : '旧版微信账号'}${suffix}`
+}
+
+function normalizedWechatSourceLabel(source: StickerAssetSource): string {
+  if (source.kind === 'wechat4') {
+    return source.label.replace(/^微信\s*4\.x\s*账号/, '新版微信账号')
+  }
+  if (source.kind === 'wechat-legacy') {
+    return source.label
+      .replace(/^微信旧版账号/, '旧版微信账号')
+      .replace(/^微信账号/, '旧版微信账号')
+  }
+  return source.label
+}
+
+function normalizeWechatSourceLabels(collection: StickerCollection): {
+  collection: StickerCollection
+  changed: boolean
+} {
+  let changed = false
+  const assets = collection.assets.map((asset) => {
+    const sources = asset.sources.map((source) => {
+      const label = normalizedWechatSourceLabel(source)
+      if (label === source.label) return source
+      changed = true
+      return { ...source, label }
+    })
+    return sources.every((source, index) => source === asset.sources[index])
+      ? asset
+      : { ...asset, sources }
+  })
+  return changed ? { collection: { ...collection, assets }, changed } : { collection, changed }
 }
 
 function migrateVersion1Manifest(value: Record<string, unknown>): StickerCollection {

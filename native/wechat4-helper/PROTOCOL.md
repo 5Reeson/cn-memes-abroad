@@ -55,6 +55,12 @@ Implemented spike methods:
   by MD5 while preserving favorite-then-custom row order, and writes only those selected records as
   bounded JSONL to anonymous fd 4. URL/auth/AES fields never enter stdout, stderr, argv, the
   environment, or logs. Stdout returns fixed validation booleans and aggregate counts only.
+- `storeEmoticonsFd`: read-only product boundary for installed official sticker packs after the
+  same full validation gate. It joins `kStoreEmoticonPackageTable` to
+  `kStoreEmoticonFilesTable` and streams the user-facing package name, package/member identifiers, ordering/status,
+  `PersistStore`/`ThumbStore` byte ranges, plus boolean remote-metadata availability over bounded
+  fd 4 JSONL. Package descriptions, URLs, AES values, and row content outside that minimum catalog
+  never cross the helper boundary; stdout contains only aggregate package/member counts.
 - `acquireKey`: currently returns `KEY_ACQUISITION_FAILED`. It intentionally does not attach to,
   inject into, copy/re-sign, or launch WeChat.
 
@@ -65,6 +71,9 @@ spike and manual validation.
 The TypeScript product boundary may cache a successfully revalidated candidate only through
 Electron `safeStorage` on macOS (Keychain-backed). A cache miss or validation failure returns to the
 existing Gate G acquisition flow; plaintext candidate bytes are cleared after each attempt.
+The separate 16-byte official-container key follows the same account-isolated `safeStorage`
+boundary, is accepted only after every local container/member MD5 validates, and is cleared and
+re-derived when validation fails.
 
 ## Error codes
 

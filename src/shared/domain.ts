@@ -4,6 +4,14 @@ export const CURRENT_PREPARED_SNAPSHOT_SCHEMA_VERSION = 1 as const
 
 export type StickerSourceKind = 'local' | 'wechat4' | 'wechat-legacy'
 
+export type StickerAlbumKind = 'personal' | 'official'
+
+export interface StickerAlbumRef {
+  kind: StickerAlbumKind
+  id: string
+  name: string
+}
+
 /**
  * A safe, user-facing provenance reference. `id` and `accountId` are opaque
  * application identifiers; labels must already be masked before persistence.
@@ -15,6 +23,7 @@ export interface StickerAssetSource {
   label: string
   accountId?: string
   importBatchId?: string
+  album?: StickerAlbumRef
   importedAt: string
 }
 
@@ -223,6 +232,12 @@ export type SavePreparedSnapshotResult =
   | { kind: 'saved'; snapshot: PreparedSnapshotView }
   | { kind: 'duplicate'; snapshot: PreparedSnapshotView }
 
+/** Loading a saved snapshot back into the export workflow as the current prepared result. */
+export interface UsePreparedSnapshotResult {
+  task: ExportTask
+  summary: PrepareExportSummary
+}
+
 export interface ImportFailure {
   path: string
   reason: string
@@ -253,6 +268,7 @@ export interface ImportSummary {
   imported: number
   duplicates: number
   failures: ImportFailure[]
+  focusedAssetIds?: string[]
 }
 
 export interface LegacyWechatAccountView {
@@ -264,6 +280,7 @@ export interface LegacyWechatAccountView {
 
 export interface LegacyWechatDiscoveryView {
   rootFound: boolean
+  permissionDenied: boolean
   accounts: LegacyWechatAccountView[]
   failures: string[]
 }
@@ -274,6 +291,7 @@ export interface Wechat4ImportAccountView {
   databaseBytes: number
   walPresent: boolean
   shmPresent: boolean
+  authorizationCached: boolean
 }
 
 export interface Wechat4ImportDiscoveryView {
@@ -306,6 +324,49 @@ export interface Wechat4GateStatus {
 
 export type WechatDownloadMode = 'default' | 'fast' | 'safe'
 export type LegacyWechatDownloadMode = WechatDownloadMode
+
+export type WechatAccountKind = 'current' | 'legacy'
+
+export type WechatStagedAssetView = Omit<StickerAsset, 'originalPath'> & {
+  previewUrl: string
+}
+
+export interface WechatAccountPreviewView {
+  accountKind: WechatAccountKind
+  accountId: string
+  assets: WechatStagedAssetView[]
+  updatedAt: string
+}
+
+export interface WechatAccountPreviewResult {
+  canceled: boolean
+  preview?: WechatAccountPreviewView
+}
+
+export interface WechatStagedImportView {
+  accountKind: WechatAccountKind
+  accountId: string
+  assets: WechatStagedAssetView[]
+  updatedAt: string
+}
+
+export interface WechatStageDownloadResult {
+  canceled: boolean
+  stagedImport?: WechatStagedImportView
+}
+
+export interface Wechat4OfficialAlbumView {
+  packageId: string
+  name: string
+  stickerCount: number
+  cached: boolean
+  cover?: WechatStagedAssetView
+}
+
+export interface Wechat4OfficialAlbumListResult {
+  albums: Wechat4OfficialAlbumView[]
+  updatedAt: string
+}
 
 export interface PackSettings {
   title: string

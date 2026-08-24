@@ -14,12 +14,10 @@ const SPEED_OPTIONS: Array<{ value: WechatDownloadMode; label: string }> = [
 export function WechatDownloadSettings({
   value,
   disabled,
-  cacheFirst = false,
   onChange,
 }: {
   value: WechatDownloadMode
   disabled: boolean
-  cacheFirst?: boolean
   onChange(value: WechatDownloadMode): void
 }) {
   const [showInfo, setShowInfo] = useState(false)
@@ -55,9 +53,8 @@ export function WechatDownloadSettings({
           <div>
             <strong>下载速率说明</strong>
             <p>
-              {cacheFirst
-                ? '速度设置仅影响本机缺失素材的微信 CDN 获取，本机缓存读取不受影响。微信没有公开此接口的频率阈值。'
-                : '微信没有公开此接口的频率阈值。降低请求频率只能减少风险，不能保证不会触发服务端限制。'}
+              速度设置将影响从微信 CDN
+              下载表情包的速度。微信没有公开此接口的频率阈值，过快的请求有可能触发限制或封禁。降低请求频率只能减少风险，不能保证避免上述风险。
             </p>
           </div>
           <button
@@ -71,21 +68,15 @@ export function WechatDownloadSettings({
           <dl>
             <div>
               <dt>默认速度</dt>
-              <dd>{cacheFirst ? '使用标准并发解析缺失素材' : '单并发，每张间隔随机 0.5-1.5 秒'}</dd>
+              <dd>较为安全，间隔约为 1 秒</dd>
             </div>
             <div>
               <dt>快速获取</dt>
-              <dd>
-                {cacheFirst
-                  ? '提高 CDN 并发，适合网络稳定时'
-                  : '4 并发连续下载，适合少量图片或网络稳定时'}
-              </dd>
+              <dd>并发加载，间隔较短</dd>
             </div>
             <div>
               <dt>安全获取</dt>
-              <dd>
-                {cacheFirst ? '串行解析缺失素材，速度较慢' : '单并发，每张间隔随机 1.5-3.5 秒'}
-              </dd>
+              <dd>更为安全，间隔约为 3 秒</dd>
             </div>
           </dl>
         </aside>
