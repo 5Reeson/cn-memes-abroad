@@ -24,6 +24,8 @@ import type {
   WechatStagedImportView,
   WechatDownloadMode,
 } from '../../shared/domain.js'
+import { toErrorMessage } from '../../shared/errors.js'
+import { Dialog } from './components/Dialog.js'
 import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
 import { StickerImagePreviewDialog } from './components/StickerImagePreviewDialog.js'
@@ -262,7 +264,7 @@ export function WechatImportPanel({
         })
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     } finally {
       setLoading(false)
     }
@@ -280,32 +282,6 @@ export function WechatImportPanel({
       unsubscribeGate?.()
     }
   }, [])
-
-  useEffect(() => {
-    if (!officialPreviewName || officialPreviewLoading) return
-
-    function closeOfficialPreviewOnEscape(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      closeOfficialPreview()
-    }
-
-    window.addEventListener('keydown', closeOfficialPreviewOnEscape)
-    return () => window.removeEventListener('keydown', closeOfficialPreviewOnEscape)
-  }, [officialPreviewLoading, officialPreviewName])
-
-  useEffect(() => {
-    if (!officialAlbumDialogOpen || officialImporting || officialPreviewName) return
-
-    function closeAlbumPickerOnEscape(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setOfficialAlbumDialogOpen(false)
-    }
-
-    window.addEventListener('keydown', closeAlbumPickerOnEscape)
-    return () => window.removeEventListener('keydown', closeAlbumPickerOnEscape)
-  }, [officialAlbumDialogOpen, officialImporting, officialPreviewName])
 
   function closeOfficialPreview() {
     setOfficialPreview(null)
@@ -376,7 +352,7 @@ export function WechatImportPanel({
         }
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     } finally {
       setActiveTask(null)
       setProgress(null)
@@ -432,7 +408,7 @@ export function WechatImportPanel({
         }
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     } finally {
       if (action === 'download') setOfficialAlbumsLoading(false)
       setActiveTask(null)
@@ -456,7 +432,7 @@ export function WechatImportPanel({
         current.filter((id) => albumResult.albums.some((album) => album.packageId === id)),
       )
     } catch (reason) {
-      setOfficialAlbumsError(reason instanceof Error ? reason.message : String(reason))
+      setOfficialAlbumsError(toErrorMessage(reason))
     } finally {
       setOfficialAlbumsLoading(false)
     }
@@ -498,7 +474,7 @@ export function WechatImportPanel({
       setOfficialAlbumDialogOpen(false)
       onImported(result)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     } finally {
       setActiveTask(null)
       setProgress(null)
@@ -523,7 +499,7 @@ export function WechatImportPanel({
       if (closeAfterCancel) onClose()
       if (!stopped) setCanceling(false)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
       setCanceling(false)
     }
   }
@@ -540,7 +516,7 @@ export function WechatImportPanel({
       const accepted = await api.confirmWechat4FavoritesReady()
       if (!accepted) setError('临时微信当前不在等待收藏表情确认。')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     }
   }
 
@@ -569,7 +545,7 @@ export function WechatImportPanel({
       setSelectionDialogOpen(false)
       onImported(result)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(toErrorMessage(reason))
     } finally {
       setCommittingSelection(false)
     }
@@ -969,294 +945,276 @@ export function WechatImportPanel({
       )}
 
       {officialAlbumDialogOpen && officialAccount && (
-        <div
-          className="preview-backdrop wechat-picker-backdrop"
-          role="presentation"
-          onClick={() => {
-            if (!officialImporting) setOfficialAlbumDialogOpen(false)
-          }}
+        <Dialog
+          className="wechat-import-picker-dialog wechat-album-picker-dialog"
+          backdropClassName="wechat-picker-backdrop"
+          surfaceAs="section"
+          ariaLabelledBy="wechat-album-picker-title"
+          closeOnBackdrop={!officialImporting}
+          closeOnEscape={!officialImporting && !officialPreviewName}
+          onClose={() => setOfficialAlbumDialogOpen(false)}
         >
-          <section
-            className="wechat-import-picker-dialog wechat-album-picker-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="wechat-album-picker-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <h2 id="wechat-album-picker-title">选择导入专辑</h2>
-                <p>按专辑选择，导入时会保存专辑内的全部表情。</p>
-              </div>
+          <header>
+            <div>
+              <h2 id="wechat-album-picker-title">选择导入专辑</h2>
+              <p>按专辑选择，导入时会保存专辑内的全部表情。</p>
+            </div>
+            <button
+              type="button"
+              className="panel-close"
+              aria-label="关闭专辑选择器"
+              disabled={officialImporting}
+              onClick={() => setOfficialAlbumDialogOpen(false)}
+            >
+              <X size={17} />
+            </button>
+          </header>
+          <div className="wechat-album-list">
+            {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
+            <div className="wechat-album-cache-note" role="note">
+              <span>
+                专辑来自本机微信缓存。如果数量不完整，请先在微信表情面板浏览并等待加载，再重新检测。
+              </span>
               <button
                 type="button"
-                className="panel-close"
-                aria-label="关闭专辑选择器"
-                disabled={officialImporting}
-                onClick={() => setOfficialAlbumDialogOpen(false)}
+                className="text-button"
+                disabled={officialAlbumsLoading || officialImporting}
+                onClick={() => void refreshOfficialAlbums()}
               >
-                <X size={17} />
+                <ArrowClockwise size={15} />
+                {officialAlbumsLoading ? '正在检测' : '重新检测'}
               </button>
-            </header>
-            <div className="wechat-album-list">
-              {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
-              <div className="wechat-album-cache-note" role="note">
-                <span>
-                  专辑来自本机微信缓存。如果数量不完整，请先在微信表情面板浏览并等待加载，再重新检测。
-                </span>
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={officialAlbumsLoading || officialImporting}
-                  onClick={() => void refreshOfficialAlbums()}
-                >
-                  <ArrowClockwise size={15} />
-                  {officialAlbumsLoading ? '正在检测' : '重新检测'}
-                </button>
-              </div>
-              <div
-                className="wechat-album-grid"
-                ref={officialAlbumBoxSelection.gridRef}
-                onPointerDown={officialAlbumBoxSelection.onPointerDown}
-                onClickCapture={officialAlbumBoxSelection.onClickCapture}
-                onDragStart={(event) => event.preventDefault()}
-              >
-                <div
-                  className="box-selection-marquee"
-                  ref={officialAlbumBoxSelection.marqueeRef}
-                  hidden
-                  aria-hidden="true"
-                />
-                {officialAlbums.map((album) => {
-                  const checked = officialSelectedIds.includes(album.packageId)
-                  return (
-                    <article
-                      key={album.packageId}
-                      className={`wechat-album-card${checked ? ' is-selected' : ''}${
-                        !album.cached ? ' is-unavailable' : ''
-                      }`}
-                      data-box-selection-id={album.cached ? album.packageId : undefined}
-                    >
-                      <button
-                        type="button"
-                        className="wechat-album-card-preview"
-                        disabled={!album.cached || officialPreviewLoading}
-                        aria-label={`查看 ${album.name} 的全部表情`}
-                        title={album.cached ? `查看 ${album.name}` : `${album.name} 尚未载入本机`}
-                        onClick={() => void previewOfficialAlbum(album)}
-                      >
-                        <span className="wechat-album-card-cover">
-                          {album.cover ? (
-                            <ProgressiveImage
-                              src={album.cover.previewUrl}
-                              alt={`${album.name}封面`}
-                            />
-                          ) : (
-                            <span className="wechat-album-card-cover-empty" aria-label="缓存待刷新">
-                              缓存待刷新
-                            </span>
-                          )}
-                        </span>
-                        <span className="wechat-album-card-meta">
-                          <strong title={album.name}>{album.name}</strong>
-                          <small>
-                            {album.stickerCount} 张表情{album.cached ? '' : ' · 尚未载入本机'}
-                          </small>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="wechat-album-card-select"
-                        aria-label={`${checked ? '取消选择' : '选择'} ${album.name}`}
-                        aria-pressed={checked}
-                        disabled={!album.cached || officialImporting}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setOfficialSelectedIds((current) =>
-                            current.includes(album.packageId)
-                              ? current.filter((id) => id !== album.packageId)
-                              : [...current, album.packageId],
-                          )
-                        }}
-                      >
-                        {checked && <Check size={15} weight="bold" />}
-                      </button>
-                    </article>
-                  )
-                })}
-              </div>
             </div>
-            <footer>
-              <div className="wechat-album-selection-summary">
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={
-                    officialImporting ||
-                    availableOfficialIds.length === 0 ||
-                    allAvailableOfficialAlbumsSelected
-                  }
-                  onClick={() => setOfficialSelectedIds(availableOfficialIds)}
-                >
-                  全选可用专辑
-                </button>
-                <span>
-                  已选择 {officialSelectedIds.length} 个专辑
-                  <small>拖过卡片可框选多个专辑</small>
-                </span>
-              </div>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={officialImporting || officialSelectedIds.length === 0}
-                  onClick={() => setOfficialSelectedIds([])}
-                >
-                  取消当前选择
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={officialImporting || officialSelectedIds.length === 0}
-                  onClick={() => void importOfficialAlbums()}
-                >
-                  {officialImporting ? '正在导入...' : `导入 ${officialSelectedIds.length} 个专辑`}
-                </button>
-              </div>
-            </footer>
-          </section>
-        </div>
+            <div
+              className="wechat-album-grid"
+              ref={officialAlbumBoxSelection.gridRef}
+              onPointerDown={officialAlbumBoxSelection.onPointerDown}
+              onClickCapture={officialAlbumBoxSelection.onClickCapture}
+              onDragStart={(event) => event.preventDefault()}
+            >
+              <div
+                className="box-selection-marquee"
+                ref={officialAlbumBoxSelection.marqueeRef}
+                hidden
+                aria-hidden="true"
+              />
+              {officialAlbums.map((album) => {
+                const checked = officialSelectedIds.includes(album.packageId)
+                return (
+                  <article
+                    key={album.packageId}
+                    className={`wechat-album-card${checked ? ' is-selected' : ''}${
+                      !album.cached ? ' is-unavailable' : ''
+                    }`}
+                    data-box-selection-id={album.cached ? album.packageId : undefined}
+                  >
+                    <button
+                      type="button"
+                      className="wechat-album-card-preview"
+                      disabled={!album.cached || officialPreviewLoading}
+                      aria-label={`查看 ${album.name} 的全部表情`}
+                      title={album.cached ? `查看 ${album.name}` : `${album.name} 尚未载入本机`}
+                      onClick={() => void previewOfficialAlbum(album)}
+                    >
+                      <span className="wechat-album-card-cover">
+                        {album.cover ? (
+                          <ProgressiveImage
+                            src={album.cover.previewUrl}
+                            alt={`${album.name}封面`}
+                          />
+                        ) : (
+                          <span className="wechat-album-card-cover-empty" aria-label="缓存待刷新">
+                            缓存待刷新
+                          </span>
+                        )}
+                      </span>
+                      <span className="wechat-album-card-meta">
+                        <strong title={album.name}>{album.name}</strong>
+                        <small>
+                          {album.stickerCount} 张表情{album.cached ? '' : ' · 尚未载入本机'}
+                        </small>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="wechat-album-card-select"
+                      aria-label={`${checked ? '取消选择' : '选择'} ${album.name}`}
+                      aria-pressed={checked}
+                      disabled={!album.cached || officialImporting}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setOfficialSelectedIds((current) =>
+                          current.includes(album.packageId)
+                            ? current.filter((id) => id !== album.packageId)
+                            : [...current, album.packageId],
+                        )
+                      }}
+                    >
+                      {checked && <Check size={15} weight="bold" />}
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+          </div>
+          <footer>
+            <div className="wechat-album-selection-summary">
+              <button
+                type="button"
+                className="text-button"
+                disabled={
+                  officialImporting ||
+                  availableOfficialIds.length === 0 ||
+                  allAvailableOfficialAlbumsSelected
+                }
+                onClick={() => setOfficialSelectedIds(availableOfficialIds)}
+              >
+                全选可用专辑
+              </button>
+              <span>
+                已选择 {officialSelectedIds.length} 个专辑
+                <small>拖过卡片可框选多个专辑</small>
+              </span>
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={officialImporting || officialSelectedIds.length === 0}
+                onClick={() => setOfficialSelectedIds([])}
+              >
+                取消当前选择
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={officialImporting || officialSelectedIds.length === 0}
+                onClick={() => void importOfficialAlbums()}
+              >
+                {officialImporting ? '正在导入...' : `导入 ${officialSelectedIds.length} 个专辑`}
+              </button>
+            </div>
+          </footer>
+        </Dialog>
       )}
 
       {(officialPreviewLoading || officialPreview || officialPreviewError) &&
         officialPreviewName && (
-          <div
-            className="preview-backdrop wechat-album-preview-backdrop"
-            role="presentation"
-            onClick={() => {
-              if (!officialPreviewLoading) closeOfficialPreview()
-            }}
-          >
-            <section
-              className="wechat-album-preview-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="wechat-album-preview-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header>
-                <div>
-                  <h2 id="wechat-album-preview-title">{officialPreviewName}</h2>
-                  <p>
-                    {officialPreview
-                      ? `${officialPreview.assets.length} 张表情`
-                      : officialPreviewError
-                        ? '暂时无法读取专辑内容'
-                        : '正在读取专辑内容'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="panel-close"
-                  aria-label="关闭专辑预览"
-                  disabled={officialPreviewLoading}
-                  onClick={closeOfficialPreview}
-                >
-                  <X size={17} />
-                </button>
-              </header>
-              {officialPreviewLoading ? (
-                <p className="wechat-album-preview-loading">
-                  <ArrowClockwise size={15} className="is-spinning" />
-                  正在加载本地专辑内容...
-                </p>
-              ) : officialPreviewError ? (
-                <div className="wechat-album-preview-error" role="alert">
-                  <Warning size={20} weight="fill" />
-                  <div>
-                    <strong>缓存出现问题，请重新打开微信</strong>
-                    <p>{officialPreviewError}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="wechat-album-preview-grid">
-                  {officialPreview?.assets.map((asset) => (
-                    <div className="wechat-album-preview-item" key={asset.id}>
-                      <ProgressiveImage src={asset.previewUrl} alt={asset.displayName} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-
-      {selectionDialogOpen && downloadedImport && (
-        <div
-          className="preview-backdrop wechat-picker-backdrop"
-          role="presentation"
-          onClick={() => {
-            if (!committingSelection) setSelectionDialogOpen(false)
-          }}
-        >
-          <section
-            className="wechat-import-picker-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="wechat-picker-title"
-            onClick={(event) => event.stopPropagation()}
+          <Dialog
+            className="wechat-album-preview-dialog"
+            backdropClassName="wechat-album-preview-backdrop"
+            surfaceAs="section"
+            ariaLabelledBy="wechat-album-preview-title"
+            closeOnBackdrop={!officialPreviewLoading}
+            closeOnEscape={!officialPreviewLoading}
+            onClose={closeOfficialPreview}
           >
             <header>
               <div>
-                <h2 id="wechat-picker-title">选择导入表情</h2>
-                <p>筛选并勾选要保存到“我的表情库”的内容。</p>
+                <h2 id="wechat-album-preview-title">{officialPreviewName}</h2>
+                <p>
+                  {officialPreview
+                    ? `${officialPreview.assets.length} 张表情`
+                    : officialPreviewError
+                      ? '暂时无法读取专辑内容'
+                      : '正在读取专辑内容'}
+                </p>
               </div>
               <button
                 type="button"
                 className="panel-close"
-                aria-label="关闭表情选择器"
-                disabled={committingSelection}
-                onClick={() => setSelectionDialogOpen(false)}
+                aria-label="关闭专辑预览"
+                disabled={officialPreviewLoading}
+                onClick={closeOfficialPreview}
               >
                 <X size={17} />
               </button>
             </header>
-            <div className="wechat-import-picker-content">
-              {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
-              <StickerPicker
-                assets={downloadedImport.stagedImport.assets}
-                selectedIds={stagedSelectedIds}
-                orderedIds={stagedOrderedIds}
-                mode="export"
-                toolbar="wechat-import"
-                allowCopy={false}
-                onSelection={setStagedSelectedIds}
-                onOrder={setStagedOrderedIds}
-              />
-            </div>
-            <footer>
-              <span>已选择 {stagedSelectedIds.length} 张</span>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={committingSelection}
-                  onClick={() => setSelectionDialogOpen(false)}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={committingSelection || stagedSelectedIds.length === 0}
-                  onClick={() => void commitStagedImport()}
-                >
-                  {committingSelection ? '正在导入...' : `导入 ${stagedSelectedIds.length} 张表情`}
-                </button>
+            {officialPreviewLoading ? (
+              <p className="wechat-album-preview-loading">
+                <ArrowClockwise size={15} className="is-spinning" />
+                正在加载本地专辑内容...
+              </p>
+            ) : officialPreviewError ? (
+              <div className="wechat-album-preview-error" role="alert">
+                <Warning size={20} weight="fill" />
+                <div>
+                  <strong>缓存出现问题，请重新打开微信</strong>
+                  <p>{officialPreviewError}</p>
+                </div>
               </div>
-            </footer>
-          </section>
-        </div>
+            ) : (
+              <div className="wechat-album-preview-grid">
+                {officialPreview?.assets.map((asset) => (
+                  <div className="wechat-album-preview-item" key={asset.id}>
+                    <ProgressiveImage src={asset.previewUrl} alt={asset.displayName} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Dialog>
+        )}
+
+      {selectionDialogOpen && downloadedImport && (
+        <Dialog
+          className="wechat-import-picker-dialog"
+          backdropClassName="wechat-picker-backdrop"
+          surfaceAs="section"
+          ariaLabelledBy="wechat-picker-title"
+          closeOnBackdrop={!committingSelection}
+          closeOnEscape={!committingSelection}
+          onClose={() => setSelectionDialogOpen(false)}
+        >
+          <header>
+            <div>
+              <h2 id="wechat-picker-title">选择导入表情</h2>
+              <p>筛选并勾选要保存到“我的表情库”的内容。</p>
+            </div>
+            <button
+              type="button"
+              className="panel-close"
+              aria-label="关闭表情选择器"
+              disabled={committingSelection}
+              onClick={() => setSelectionDialogOpen(false)}
+            >
+              <X size={17} />
+            </button>
+          </header>
+          <div className="wechat-import-picker-content">
+            {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
+            <StickerPicker
+              assets={downloadedImport.stagedImport.assets}
+              selectedIds={stagedSelectedIds}
+              orderedIds={stagedOrderedIds}
+              mode="export"
+              toolbar="wechat-import"
+              allowCopy={false}
+              onSelection={setStagedSelectedIds}
+              onOrder={setStagedOrderedIds}
+            />
+          </div>
+          <footer>
+            <span>已选择 {stagedSelectedIds.length} 张</span>
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={committingSelection}
+                onClick={() => setSelectionDialogOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={committingSelection || stagedSelectedIds.length === 0}
+                onClick={() => void commitStagedImport()}
+              >
+                {committingSelection ? '正在导入...' : `导入 ${stagedSelectedIds.length} 张表情`}
+              </button>
+            </div>
+          </footer>
+        </Dialog>
       )}
     </section>
   )

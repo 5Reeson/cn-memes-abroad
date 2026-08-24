@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { WhatsAppConnectionView, WhatsAppCredentialMode } from '../../../shared/domain.js'
+import { toErrorMessage } from '../../../shared/errors.js'
 import { isWhatsAppConnectionPending } from '../../../shared/whatsapp-connection.js'
 
 interface UseWhatsAppConnectionControllerOptions {
@@ -57,7 +58,7 @@ export function useWhatsAppConnectionController({
       onConnectionChange(status)
       return status
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason))
+      onError(toErrorMessage(reason))
       return undefined
     } finally {
       setBusy(false)

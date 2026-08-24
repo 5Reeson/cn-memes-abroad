@@ -7,8 +7,6 @@ import { FolderOpenIcon as FolderOpen } from '@phosphor-icons/react/FolderOpen'
 import { ImagesIcon as Images } from '@phosphor-icons/react/Images'
 import { LinkIcon as Link } from '@phosphor-icons/react/Link'
 import { ShieldCheckIcon as ShieldCheck } from '@phosphor-icons/react/ShieldCheck'
-import { TrashIcon as Trash } from '@phosphor-icons/react/Trash'
-import { UploadSimpleIcon as UploadSimple } from '@phosphor-icons/react/UploadSimple'
 import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/WarningCircle'
 import { WechatLogoIcon as WechatLogo } from '@phosphor-icons/react/WechatLogo'
 import { WhatsappLogoIcon as WhatsappLogo } from '@phosphor-icons/react/WhatsappLogo'
@@ -31,17 +29,26 @@ import type {
   PreparedSnapshotSummary,
   WhatsAppConnectionView,
 } from '../../shared/domain.js'
+import { toErrorMessage } from '../../shared/errors.js'
 import {
   INITIAL_WHATSAPP_CONNECTION,
   whatsAppConnectionLabel,
 } from '../../shared/whatsapp-connection.js'
+import { AboutPage } from './components/AboutPage.js'
+import { ArchivesPage, SnapshotPreviewDialog } from './components/ArchivesPage.js'
 import { AppShell, type AppPage } from './components/AppShell.js'
+import { ConnectionsPage } from './components/ConnectionsPage.js'
 import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
+import { Dialog } from './components/Dialog.js'
+import { LibraryPage } from './components/LibraryPage.js'
 import { PathDisplay } from './components/PathDisplay.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
+import { ProductBanner } from './components/ProductBanner.js'
+import { SettingsPage } from './components/SettingsPage.js'
 import { StickerPicker } from './components/StickerPicker.js'
 import { useProgressiveCount } from './components/useProgressiveCount.js'
 import { WhatsAppConnectionPanel } from './components/WhatsAppConnectionPanel.js'
+import { WorkspaceHeading } from './components/WorkspaceHeading.js'
 import { WorkflowRail } from './components/WorkflowRail.js'
 import { WhatsAppSendPanel } from './WhatsAppSendPanel.js'
 import { createWechatImportSessionState, WechatImportPanel } from './WechatImportPanel.js'
@@ -155,7 +162,7 @@ export function App() {
   }, [page, task?.currentStep])
 
   function showError(reason: unknown) {
-    setError(reason instanceof Error ? reason.message : String(reason))
+    setError(toErrorMessage(reason))
   }
 
   function updateTask(patch: Partial<ExportTaskDraft>) {
@@ -302,7 +309,7 @@ export function App() {
         setNotice(`已自动规范化 ${result.animationRepairs.length} 张动图的短帧，其余素材不受影响。`)
       }
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason)
+      const message = toErrorMessage(reason)
       if (!message.includes('已停止') && !message.includes('已修改')) showError(reason)
     } finally {
       setBusy(false)
@@ -535,24 +542,8 @@ export function App() {
         ) : undefined
       }
     >
-      {error && (
-        <div className="product-banner error" role="alert">
-          <WarningCircle size={18} />
-          <span>{error}</span>
-          <button type="button" onClick={() => setError(null)} aria-label="关闭错误">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-      {notice && (
-        <div className="product-banner notice" role="status">
-          <CheckCircle size={18} />
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="关闭提示">
-            <X size={16} />
-          </button>
-        </div>
-      )}
+      {error && <ProductBanner tone="error" message={error} onDismiss={() => setError(null)} />}
+      {notice && <ProductBanner tone="notice" message={notice} onDismiss={() => setNotice(null)} />}
       {snapshotPreview && (
         <SnapshotPreviewDialog
           snapshot={snapshotPreview}
@@ -598,26 +589,6 @@ function ExportPage(props: ExportPageProps) {
   if (task.currentStep === 2) return <DestinationStep {...props} />
   if (task.currentStep === 3) return <PickerStep {...props} />
   return <TransferStep {...props} />
-}
-
-function StepHeading({
-  title,
-  description,
-  aside,
-}: {
-  title: string
-  description: string
-  aside?: React.ReactNode
-}) {
-  return (
-    <header className="workspace-heading">
-      <div>
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-      {aside}
-    </header>
-  )
 }
 
 function WorkflowFooter({
@@ -678,7 +649,7 @@ function SourceStep(props: ExportPageProps) {
 
   return (
     <div className="workflow-workspace">
-      <StepHeading
+      <WorkspaceHeading
         title="选择素材来源"
         description="选择这次传输的素材来源。新导入的内容会被安全保存到「我的表情库」"
       />
@@ -830,7 +801,7 @@ function DestinationStep(props: ExportPageProps) {
       disabled={!destinationReady}
       onAction={() => props.onStep(3)}
     >
-      <StepHeading
+      <WorkspaceHeading
         title="选择目的地"
         description="目的地是必选项。只有 WhatsApp 需要先建立连接。"
       />
@@ -963,7 +934,7 @@ function PickerStep(props: ExportPageProps) {
       disabled={!hasSelection}
       onAction={() => props.onStep(4)}
     >
-      <StepHeading
+      <WorkspaceHeading
         title="挑选传输表情"
         description={`我的表情库共有 ${props.collection.assets.length} 张素材。此处选择的表情会在下一步被传输，选择的序号将影响传输时的先后顺序。`}
         aside={
@@ -1017,7 +988,7 @@ function TransferStep(props: ExportPageProps) {
 
   return (
     <div className="workflow-workspace transfer-workspace">
-      <StepHeading
+      <WorkspaceHeading
         title="检查并传输"
         description={
           whatsAppDestination
@@ -1316,50 +1287,39 @@ function PreparedPackPreviewDialog({
   group: PrepareExportSummary['groups'][number]
   onClose(): void
 }) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
-
   const kindLabel =
     group.mediaKind === 'animated' ? '动图' : group.mediaKind === 'static' ? '静态表情' : '混合素材'
 
   return (
-    <div className="preview-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="prepared-pack-preview-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="prepared-pack-preview-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <h2 id="prepared-pack-preview-title">{group.name}</h2>
-            <p>
-              {group.items.length} 张 · {kindLabel}
-            </p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭预览">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="prepared-pack-preview-grid">
-          {group.items.map((item, index) => (
-            <figure key={item.id}>
-              <ProgressiveImage
-                src={item.previewUrl}
-                alt={`${group.name}中的第 ${index + 1} 张表情`}
-              />
-              <figcaption>{index + 1}</figcaption>
-            </figure>
-          ))}
+    <Dialog
+      className="prepared-pack-preview-dialog"
+      surfaceAs="section"
+      ariaLabelledBy="prepared-pack-preview-title"
+      onClose={onClose}
+    >
+      <header>
+        <div>
+          <h2 id="prepared-pack-preview-title">{group.name}</h2>
+          <p>
+            {group.items.length} 张 · {kindLabel}
+          </p>
         </div>
-      </section>
-    </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="关闭预览">
+          <X size={18} />
+        </button>
+      </header>
+      <div className="prepared-pack-preview-grid">
+        {group.items.map((item, index) => (
+          <figure key={item.id}>
+            <ProgressiveImage
+              src={item.previewUrl}
+              alt={`${group.name}中的第 ${index + 1} 张表情`}
+            />
+            <figcaption>{index + 1}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </Dialog>
   )
 }
 
@@ -1485,359 +1445,6 @@ function LocalTransferFields({
           />
         </label>
       </div>
-    </div>
-  )
-}
-
-function SavedResults({
-  snapshots,
-  onOpen,
-  onUse,
-  onDelete,
-  limit,
-}: {
-  snapshots: PreparedSnapshotSummary[]
-  onOpen(id: string): void
-  onUse(id: string): void
-  onDelete(id: string): void
-  limit?: number
-}) {
-  const visible = limit === undefined ? snapshots : snapshots.slice(0, limit)
-  return (
-    <section className="saved-results">
-      <h3>表情分组存档</h3>
-      <div>
-        {visible.map((snapshot) => (
-          <article key={snapshot.id}>
-            <button className="saved-result-main" type="button" onClick={() => onOpen(snapshot.id)}>
-              <strong>{snapshot.name}</strong>
-              <small>
-                {new Date(snapshot.createdAt).toLocaleString('zh-CN')} · {snapshot.assetCount} 张 ·{' '}
-                {snapshot.groupCount} 组 ·{' '}
-                {snapshot.destination === 'whatsapp' ? 'WhatsApp' : '本地文件夹'}
-              </small>
-            </button>
-            <button className="saved-result-use" type="button" onClick={() => onUse(snapshot.id)}>
-              使用
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={`删除 ${snapshot.name}`}
-              onClick={() => onDelete(snapshot.id)}
-            >
-              <Trash size={16} />
-            </button>
-          </article>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function SnapshotPreviewDialog({
-  snapshot,
-  onClose,
-}: {
-  snapshot: PreparedSnapshotView
-  onClose(): void
-}) {
-  return (
-    <div className="preview-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="snapshot-preview-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="snapshot-preview-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <h2 id="snapshot-preview-title">{snapshot.name}</h2>
-            <p>
-              {snapshot.destination === 'whatsapp' ? 'WhatsApp' : '本地文件夹'}，
-              {snapshot.assetCount} 张素材，{snapshot.groupCount} 组
-            </p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="关闭预览">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="snapshot-preview-groups">
-          {snapshot.groups.map((group) => (
-            <article key={group.id}>
-              <div>
-                <strong>{group.name}</strong>
-                <small>{group.items.length} 张</small>
-              </div>
-              <div>
-                {group.items.map((item) => (
-                  <ProgressiveImage src={item.previewUrl} alt="" key={item.id} />
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-        <footer>
-          <span>这是独立保存的不可变副本，删除源素材后仍可安全预览。</span>
-          <button className="primary-button" type="button" onClick={onClose}>
-            完成
-          </button>
-        </footer>
-      </section>
-    </div>
-  )
-}
-
-function ArchivesPage({
-  snapshots,
-  onOpen,
-  onUse,
-  onDelete,
-}: {
-  snapshots: PreparedSnapshotSummary[]
-  onOpen(id: string): void
-  onUse(id: string): void
-  onDelete(id: string): void
-}) {
-  return (
-    <div className="page-workspace">
-      <header className="workspace-heading">
-        <div>
-          <h2>表情分组存档</h2>
-          <p>已保存的准备结果。点击「使用」即可载入原分组与配置，直接进入传输确认。</p>
-        </div>
-      </header>
-      {snapshots.length === 0 ? (
-        <p className="inline-note">
-          还没有存档。在导出流程第 4 步勾选「保留本次准备结果」即可保存。
-        </p>
-      ) : (
-        <SavedResults snapshots={snapshots} onOpen={onOpen} onUse={onUse} onDelete={onDelete} />
-      )}
-    </div>
-  )
-}
-
-function LibraryPage({
-  collection,
-  onSelection,
-  onOrder,
-  onDelete,
-  onLocalImport,
-  onWechat,
-  wechatPanel,
-}: {
-  collection: CollectionView
-  onSelection(ids: string[]): void
-  onOrder(ids: string[]): void
-  onDelete(ids: string[]): void
-  onLocalImport(mode: ImportMode): void
-  onWechat(): void
-  wechatPanel: React.ReactNode
-}) {
-  return (
-    <div className="page-workspace">
-      <StepHeading
-        title="我的表情库"
-        description="浏览、管理所有已经导入本应用的表情包素材。单击可查看文件名、预览、复制、删除。支持框选及拖拽排序。"
-        aside={
-          <div className="heading-actions">
-            <button className="secondary-button" type="button" onClick={onWechat}>
-              <WechatLogo size={16} />
-              微信导入
-            </button>
-            <button className="primary-button" type="button" onClick={() => onLocalImport('files')}>
-              <UploadSimple size={16} />
-              本机导入
-            </button>
-          </div>
-        }
-      />
-      {wechatPanel && <div className="page-inline-panel">{wechatPanel}</div>}
-      {collection.assets.length ? (
-        <StickerPicker
-          assets={collection.assets}
-          selectedIds={collection.selectedAssetIds}
-          orderedIds={[...collection.assets]
-            .sort((a, b) => a.userOrder - b.userOrder)
-            .map((asset) => asset.id)}
-          mode="library"
-          onSelection={onSelection}
-          onOrder={onOrder}
-          onDelete={onDelete}
-        />
-      ) : (
-        <div className="empty-state">
-          <Images size={36} />
-          <h3>表情库还是空的</h3>
-          <p>从本机或微信导入后，素材会安全保存到这里。</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ConnectionsPage({
-  connection,
-  onError,
-  onStatus,
-  onWechat,
-  wechatPanel,
-}: {
-  connection: WhatsAppConnectionView
-  onError(message: string): void
-  onStatus(status: WhatsAppConnectionView): void
-  onWechat(): void
-  wechatPanel: React.ReactNode
-}) {
-  return (
-    <div className="page-workspace">
-      <StepHeading
-        title="连接到 App"
-        description="管理长期连接与本机导入授权。连接配置不会变成第二条导出流程。"
-      />
-      <WhatsAppConnectionPanel connection={connection} onError={onError} onStatus={onStatus} />
-      <section className="connection-panel wechat-access">
-        <header>
-          <span className="destination-icon wechat">
-            <WechatLogo size={30} weight="fill" />
-          </span>
-          <div>
-            <h3>微信导入访问</h3>
-            <p>选择账号时，应用会按需请求系统授权；微信数据只在本机读取。</p>
-          </div>
-        </header>
-        <footer>
-          <button className="secondary-button" type="button" onClick={onWechat}>
-            选择微信账号
-          </button>
-        </footer>
-      </section>
-      {wechatPanel && <div className="page-inline-panel">{wechatPanel}</div>}
-      <section className="connection-panel is-muted">
-        <header>
-          <span className="destination-icon">
-            <Link size={27} />
-          </span>
-          <div>
-            <h3>更多 App</h3>
-            <p>暂未支持。可以先导出到本地文件夹后手动添加。</p>
-          </div>
-        </header>
-      </section>
-    </div>
-  )
-}
-
-function SettingsPage({
-  task,
-  defaultDirectory,
-  onChooseDirectory,
-}: {
-  task: ExportTask
-  defaultDirectory: DefaultExportDirectoryView | null
-  onChooseDirectory(): void
-}) {
-  return (
-    <div className="page-workspace settings-page">
-      <StepHeading
-        title="设置"
-        description="调整本地导出与默认行为。敏感凭证请在“连接到 App”中管理。"
-      />
-      <section className="settings-group">
-        <header className="settings-group-heading">
-          <span className="settings-group-icon">
-            <FolderOpen size={20} />
-          </span>
-          <div>
-            <h3>本地导出</h3>
-            <p>设置常用位置与文件夹分组方式。</p>
-          </div>
-        </header>
-        <div className="settings-list">
-          <button className="settings-row" type="button" onClick={onChooseDirectory}>
-            <span>
-              <strong>默认导出位置</strong>
-              <small>
-                {defaultDirectory?.path ? <PathDisplay path={defaultDirectory.path} /> : '尚未选择'}
-              </small>
-            </span>
-            <ArrowRight size={18} />
-          </button>
-          <div className="settings-row">
-            <span>
-              <strong>默认文件夹分组</strong>
-              <small>
-                每组 {task.localFolder.itemsPerFolder} 张，
-                {task.localFolder.format === 'original' ? '保留原格式' : '转换为 WebP'}
-              </small>
-            </span>
-          </div>
-        </div>
-      </section>
-      <section className="settings-group">
-        <header className="settings-group-heading">
-          <span className="settings-group-icon">
-            <ShieldCheck size={20} />
-          </span>
-          <div>
-            <h3>隐私与存储</h3>
-            <p>查看本机数据处理与凭证管理边界。</p>
-          </div>
-        </header>
-        <div className="settings-list">
-          <div className="settings-row">
-            <span>
-              <strong>本地优先</strong>
-              <small>素材库只保存在这台 Mac，数据处理均在本地进行</small>
-            </span>
-            <span className="settings-status">
-              <ShieldCheck size={17} />
-            </span>
-          </div>
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function AboutPage() {
-  return (
-    <div className="page-workspace narrow-page about-page">
-      <StepHeading
-        title="关于与安全"
-        description="图渡是一款本地优先的 macOS 表情整理与传输工具。"
-      />
-      <section>
-        <h3>微信数据怎么读取？</h3>
-        <p>
-          本应用只在你明确授权后读取微信表情相关数据。在从新版微信 (4.0 及以上版本)
-          时会创建临时的隔离微信环境并请你扫码登录，此过程不会修改任何微信数据。你可以随时退出临时环境，或通过系统权限设置撤销访问。
-        </p>
-      </section>
-      <section>
-        <h3>数据会被上传吗？</h3>
-        <p>
-          本机图片与数据库在本地处理。只有当需要将「我的表情包」内的素材导入到其他 App, 如 WhatsApp
-          时，才会将数据向互联网传输。任何您的个人数据、表情包素材，都不会被我们上传到服务器或记录在日志中。
-        </p>
-      </section>
-      <section>
-        <h3>WhatsApp 凭证如何保存？</h3>
-        <p>
-          默认存储在 macOS 钥匙串中，由 macOS
-          进行保护。您也可选择保存到本地明文文件中来避免可能的系统授权，但安全性可能因此降低。
-        </p>
-      </section>
-      <section>
-        <h3>独立项目与公开审查</h3>
-        <p>
-          本项目不是腾讯或 Meta / WhatsApp
-          官方产品，仅供个人学习交流使用。任何在使用本应用中过程中可能产生的潜在问题，如封
-          IP、封号等，本项目及其开发者概不负责。本项目源码开源、构建配置和依赖可公开审查。
-        </p>
-      </section>
     </div>
   )
 }

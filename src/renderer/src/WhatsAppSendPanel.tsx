@@ -15,6 +15,7 @@ import type {
   WhatsAppConnectionView,
   WhatsAppTarget,
 } from '../../shared/domain.js'
+import { toErrorMessage } from '../../shared/errors.js'
 import { whatsAppConnectionLabel } from '../../shared/whatsapp-connection.js'
 import { WhatsAppConnectionControls } from './components/WhatsAppConnectionControls.js'
 import { useWhatsAppConnectionController } from './components/useWhatsAppConnectionController.js'
@@ -108,7 +109,7 @@ export function WhatsAppSendPanel({
     try {
       setGroups(await api.listWhatsAppGroups())
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      onError(toErrorMessage(error))
     } finally {
       setGroupsLoading(false)
     }
@@ -130,7 +131,7 @@ export function WhatsAppSendPanel({
       }))
       onSent?.()
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      onError(toErrorMessage(error))
     } finally {
       setSending(false)
     }
