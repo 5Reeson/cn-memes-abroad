@@ -6,7 +6,7 @@
 
 你是 `cn-memes-abroad` 项目的接手 agent。这是项目所有者本人在自己 Mac、自己微信账号、自己表情数据上的**数据可携带性研究**。最终目标：通过开启一个微信 4.x 副本（或其他等价方式），**只读**拿到 `emoticon.db` 里存储的用户**个人收藏/自定义表情**相关信息，并接入本地素材库。
 
-- 项目路径：`/Users/reason/Desktop/projects/cn-memes-abroad`
+- 项目路径：仓库根目录
 - 分支 `dev`，HEAD `19eae8f`。
 - 工作区含大量用户已有、未提交的 Phase 7 修改。**禁止 reset / checkout / 覆盖 / 丢弃 / 清理 / 自行 commit。**
 - 环境：macOS 15.6.1 arm64；已装 WeChat `4.1.11` build `269136`，bundle id `com.tencent.xinWeChat`，主可执行文件 universal (arm64+x86_64)。
