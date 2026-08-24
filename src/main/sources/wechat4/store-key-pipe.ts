@@ -106,10 +106,7 @@ export async function readWechat4StoreKeyCandidate(
       frame.fill(0)
       finish(() => resolve({ key, targetIndex, sourceMode }))
     }
-    const timer = setTimeout(
-      () => fail('Store key pipe timed out'),
-      options.timeoutMs ?? 30_000,
-    )
+    const timer = setTimeout(() => fail('Store key pipe timed out'), options.timeoutMs ?? 30_000)
 
     if (options.signal?.aborted) return onAbort()
     options.signal?.addEventListener('abort', onAbort, { once: true })

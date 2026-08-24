@@ -33,10 +33,7 @@ export function WhatsAppConnectionPanel({
         </span>
         <div>
           <h3>WhatsApp</h3>
-          <p>
-            {connection.message ??
-              '登录凭证将被保存在本地，供未来重复使用、减少重复扫码登录'}
-          </p>
+          <p>{connection.message ?? '登录凭证将被保存在本地，供未来重复使用、减少重复扫码登录'}</p>
         </div>
         <div className="connection-panel-header-actions">
           <span className={`semantic-status ${connection.phase}`}>

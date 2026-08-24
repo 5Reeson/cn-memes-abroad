@@ -12,13 +12,7 @@ import {
 
 type Architecture = 'arm64' | 'x86_64'
 type HostMode =
-  | 'correct'
-  | 'correct-ecb'
-  | 'correct-32'
-  | 'correct-32-ascii'
-  | 'wrong'
-  | 'ineligible'
-  | 'mixed'
+  'correct' | 'correct-ecb' | 'correct-32' | 'correct-32-ascii' | 'wrong' | 'ineligible' | 'mixed'
 
 const correctKey = Buffer.from('00112233445566778899aabbccddeeff', 'hex')
 const plaintext = Buffer.alloc(16)
@@ -149,10 +143,7 @@ async function runScenario(
       executable: artifact(architecture, 'wechat4-store-synthetic-host'),
       arguments: [mode],
       environment: {
-        DYLD_INSERT_LIBRARIES: artifact(
-          architecture,
-          'libwechat4-store-key-interposer.dylib',
-        ),
+        DYLD_INSERT_LIBRARIES: artifact(architecture, 'libwechat4-store-key-interposer.dylib'),
       },
       anonymousInputDescriptors: [4],
       anonymousOutputDescriptors: [7],
@@ -184,7 +175,10 @@ async function runScenario(
         const candidateBytes = candidate.key.length
         try {
           assert.equal(candidate.targetIndex, 0)
-          assert.equal(candidate.key.equals(mode === 'correct-32' ? correctKey32 : correctKey), true)
+          assert.equal(
+            candidate.key.equals(mode === 'correct-32' ? correctKey32 : correctKey),
+            true,
+          )
           assert.equal(candidate.sourceMode, mode === 'correct-32-ascii' ? 'hex-decoded' : 'direct')
         } finally {
           clearWechat4StoreKeyCandidate(candidate)

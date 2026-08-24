@@ -217,9 +217,7 @@ async function prepareAccountTargets(report: Gate8Report): Promise<PreparedAccou
       report.accountsWithCachedCatalog += 1
       const root = roots.get(account.id)
       if (!root) continue
-      const files = await regularContainerFiles(
-        join(root, 'business', 'emoticon', 'PersistStore'),
-      )
+      const files = await regularContainerFiles(join(root, 'business', 'emoticon', 'PersistStore'))
       const packages = new Map<string, Wechat4StoreEmoticon[]>()
       for (const record of records) {
         const members = packages.get(record.packageId) ?? []
@@ -289,11 +287,7 @@ async function validateStoreKey(
       if (imageHeader(plaintext)) report.imageHeaderContainers += 1
       for (const record of target.records) {
         const end = record.emoticonOffset + record.emoticonSize
-        if (
-          record.emoticonSize <= 0 ||
-          !Number.isSafeInteger(end) ||
-          end > plaintext.length
-        ) {
+        if (record.emoticonSize <= 0 || !Number.isSafeInteger(end) || end > plaintext.length) {
           report.memberMd5Mismatches += 1
           continue
         }
@@ -442,10 +436,14 @@ async function terminateVerifiedTemporaryProcesses(appPath: string): Promise<voi
     }
   }
   await signal('SIGTERM')
-  if (!(await waitUntil(async () => (await verifiedTemporaryProcesses(appPath)).length === 0, 1_000))) {
+  if (
+    !(await waitUntil(async () => (await verifiedTemporaryProcesses(appPath)).length === 0, 1_000))
+  ) {
     await signal('SIGKILL')
   }
-  if (!(await waitUntil(async () => (await verifiedTemporaryProcesses(appPath)).length === 0, 3_000))) {
+  if (
+    !(await waitUntil(async () => (await verifiedTemporaryProcesses(appPath)).length === 0, 3_000))
+  ) {
     throw new Error('temporary-process-cleanup')
   }
 }
@@ -553,7 +551,10 @@ async function runGate8(): Promise<Gate8Report> {
     })
     const executablePath = await realpath(join(copiedAppPath, 'Contents', 'MacOS', 'WeChat'))
     const copiedRoot = await realpath(copiedAppPath)
-    if (!isWithin(copiedRoot, executablePath) || executablePath === (await realpath(originalExecutable))) {
+    if (
+      !isWithin(copiedRoot, executablePath) ||
+      executablePath === (await realpath(originalExecutable))
+    ) {
       throw new Error('temporary-executable-boundary')
     }
 
