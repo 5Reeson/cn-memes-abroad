@@ -25,6 +25,11 @@ import type {
   WechatDownloadMode,
 } from '../../shared/domain.js'
 import { toErrorMessage } from '../../shared/errors.js'
+import type {
+  VxPluginCapability,
+  VxPluginDistributionAvailability,
+  VxPluginInstallProgress,
+} from '../../shared/vx-plugin.js'
 import { Dialog } from './components/Dialog.js'
 import { DismissibleInfoNotice } from './components/DismissibleInfoNotice.js'
 import { ProgressiveImage } from './components/ProgressiveImage.js'
@@ -128,6 +133,29 @@ function importStatusLabel(status: Wechat4GateStatus): string {
   }
 }
 
+function ImportProgressLine({
+  completed,
+  total,
+  fallbackPercent = 0,
+}: {
+  completed: number
+  total: number
+  fallbackPercent?: number
+}) {
+  const percent = total > 0 ? Math.min(100, (completed / total) * 100) : fallbackPercent
+  return (
+    <div
+      className="progress-line"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={Math.max(total, 1)}
+      aria-valuenow={Math.min(completed, Math.max(total, 1))}
+    >
+      <span style={{ width: `${percent}%` }} />
+    </div>
+  )
+}
+
 export function WechatImportPanel({
   onClose,
   onImported,
@@ -163,6 +191,15 @@ export function WechatImportPanel({
   const [committingSelection, setCommittingSelection] = useState(false)
   const [canceling, setCanceling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pluginCapability, setPluginCapability] = useState<VxPluginCapability | null>(null)
+  const [pluginRefreshing, setPluginRefreshing] = useState(false)
+  const [pluginInstalling, setPluginInstalling] = useState(false)
+  const [pluginInstallProgress, setPluginInstallProgress] =
+    useState<VxPluginInstallProgress | null>(null)
+  const [pluginDistribution, setPluginDistribution] = useState<VxPluginDistributionAvailability>({
+    localPackageInstall: true,
+    remoteInstall: false,
+  })
   const {
     activeTask,
     accountPreviews,
@@ -220,16 +257,19 @@ export function WechatImportPanel({
   const setGateStatus = (value: SetStateAction<Wechat4GateStatus>) =>
     setSessionValue('gateStatus', value)
 
-  async function discover() {
+  async function discover(refreshedCapability?: VxPluginCapability) {
     const api = window.stickerApp
     if (!api) return setError('桌面桥接不可用，请重新打开应用。')
     setLoading(true)
     setError(null)
     try {
-      const [current, legacy] = await Promise.all([
-        api.discoverWechat4(),
+      const [capability, legacy] = await Promise.all([
+        refreshedCapability ?? api.getVxPluginCapability(),
         api.discoverLegacyWechat(),
       ])
+      setPluginCapability(capability)
+      const current =
+        capability.state === 'ready' ? await api.discoverWechat4() : EMPTY_DISCOVERIES.current
       setDiscoveries({ current, legacy })
       const accounts: WechatAccount[] = [
         ...current.accounts.map((account) => ({ kind: 'current' as const, account })),
@@ -270,16 +310,77 @@ export function WechatImportPanel({
     }
   }
 
+  async function refreshPlugin() {
+    const api = window.stickerApp
+    if (!api || pluginRefreshing) return
+    setPluginRefreshing(true)
+    setError(null)
+    try {
+      const capability = await api.refreshVxPluginCapability()
+      setPluginCapability(capability)
+      await discover(capability)
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    } finally {
+      setPluginRefreshing(false)
+    }
+  }
+
+  async function openPluginInstallPage() {
+    const api = window.stickerApp
+    if (!api) return setError('桌面桥接不可用，请重新打开应用。')
+    try {
+      const opened = await api.openVxPluginInstallPage()
+      if (!opened) setError('当前构建未提供组件安装页面。')
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }
+
+  async function installPlugin(source: 'remote' | 'local') {
+    const api = window.stickerApp
+    if (!api || pluginInstalling) return
+    setPluginInstalling(true)
+    setPluginInstallProgress({
+      phase: source === 'remote' ? 'checking' : 'verifying',
+      message: source === 'remote' ? '正在检查可用组件' : '正在等待选择安装包',
+    })
+    setError(null)
+    try {
+      const result =
+        source === 'remote'
+          ? await api.installVxPluginFromRemote()
+          : await api.chooseVxPluginPackage()
+      if (result.canceled) {
+        setPluginInstallProgress(null)
+        return
+      }
+      setPluginCapability(result.capability)
+      await discover(result.capability)
+    } catch (reason) {
+      setPluginInstallProgress(null)
+      setError(toErrorMessage(reason))
+    } finally {
+      setPluginInstalling(false)
+    }
+  }
+
   useEffect(() => {
     const api = window.stickerApp
     const unsubscribeCurrentProgress = api?.onWechat4Progress(setProgress)
     const unsubscribeLegacyProgress = api?.onLegacyWechatProgress(setProgress)
     const unsubscribeGate = api?.onWechat4GateStatus(setGateStatus)
+    const unsubscribePluginInstall = api?.onVxPluginInstallProgress(setPluginInstallProgress)
+    void api
+      ?.getVxPluginDistributionAvailability()
+      .then(setPluginDistribution)
+      .catch(() => undefined)
     void discover()
     return () => {
       unsubscribeCurrentProgress?.()
       unsubscribeLegacyProgress?.()
       unsubscribeGate?.()
+      unsubscribePluginInstall?.()
     }
   }, [])
 
@@ -535,6 +636,7 @@ export function WechatImportPanel({
     const selected = new Set(stagedSelectedIds)
     const orderedSelection = stagedOrderedIds.filter((id) => selected.has(id))
     setCommittingSelection(true)
+    setProgress(null)
     setError(null)
     try {
       const result = await api.commitWechatStagedImport(
@@ -548,6 +650,7 @@ export function WechatImportPanel({
       setError(toErrorMessage(reason))
     } finally {
       setCommittingSelection(false)
+      setProgress(null)
     }
   }
 
@@ -609,6 +712,77 @@ export function WechatImportPanel({
       </div>
 
       {error && <p className="wechat-import-error">{error}</p>}
+
+      {pluginCapability && pluginCapability.state !== 'ready' && (
+        <div className="wechat-plugin-notice" role="note">
+          <Warning size={20} weight="fill" />
+          <div>
+            <strong>
+              {pluginCapability.state === 'missing'
+                ? '新版微信导入组件尚未安装'
+                : '新版微信导入组件需要更新'}
+            </strong>
+            <p>
+              {pluginCapability.state === 'incompatible'
+                ? `${pluginCapability.reason}。旧版微信导入和应用的其他功能仍可正常使用。`
+                : '安装组件后可导入微信 4.x 表情；旧版微信导入和应用的其他功能仍可正常使用。'}
+            </p>
+            {pluginInstalling && pluginInstallProgress && (
+              <div className="wechat-plugin-install-progress" aria-live="polite">
+                <span>{pluginInstallProgress.message}</span>
+                {pluginInstallProgress.phase === 'downloading' && (
+                  <ImportProgressLine
+                    completed={pluginInstallProgress.completedBytes ?? 0}
+                    total={pluginInstallProgress.totalBytes ?? 0}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+          <div className="button-row">
+            {pluginDistribution.remoteInstall && (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={pluginInstalling || pluginRefreshing}
+                onClick={() => void installPlugin('remote')}
+              >
+                <DownloadSimple size={16} />
+                {pluginInstalling ? '正在安装' : '下载并安装'}
+              </button>
+            )}
+            {pluginDistribution.localPackageInstall && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={pluginInstalling || pluginRefreshing}
+                onClick={() => void installPlugin('local')}
+              >
+                选择本地安装包
+              </button>
+            )}
+            {pluginCapability.installPageUrl && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={pluginInstalling || pluginRefreshing}
+                onClick={() => void openPluginInstallPage()}
+              >
+                安装说明
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={pluginRefreshing || pluginInstalling}
+              onClick={() => void refreshPlugin()}
+            >
+              <ArrowClockwise size={16} className={pluginRefreshing ? 'is-spinning' : undefined} />
+              {pluginRefreshing ? '正在检测' : '重新检测'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="wechat-import-empty">正在查找微信账号…</p>
@@ -773,7 +947,11 @@ export function WechatImportPanel({
 
           {!permissionDenied && accounts.length === 0 && (
             <div className="wechat-import-empty">
-              <p>没有找到可读取的微信个人收藏。请先登录微信并打开一次收藏表情，然后重新检测。</p>
+              <p>
+                {pluginCapability?.state === 'ready'
+                  ? '没有找到可读取的微信个人收藏。请先登录微信并打开一次收藏表情，然后重新检测。'
+                  : '没有找到可读取的旧版微信个人收藏。安装新版微信导入组件后，可继续检测微信 4.x 账号。'}
+              </p>
               <button type="button" className="secondary-button" onClick={() => void discover()}>
                 <ArrowClockwise size={16} /> 重新检测
               </button>
@@ -801,17 +979,13 @@ export function WechatImportPanel({
             </span>
             <span>{progress ? `${progress.completed} / ${progress.total}` : '准备中'}</span>
           </div>
-          <div className="progress-line">
-            <span
-              style={{
-                width: progress?.total
-                  ? `${Math.min(100, (progress.completed / progress.total) * 100)}%`
-                  : activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-qr'
-                    ? '45%'
-                    : '8%',
-              }}
-            />
-          </div>
+          <ImportProgressLine
+            completed={progress?.completed ?? 0}
+            total={progress?.total ?? 0}
+            fallbackPercent={
+              activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-qr' ? 45 : 8
+            }
+          />
           {activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-qr' ? (
             <p>请在临时微信窗口扫码登录，然后打开收藏表情面板。</p>
           ) : activeTask.item.kind === 'current' && gateStatus.phase === 'awaiting-favorites' ? (
@@ -950,6 +1124,7 @@ export function WechatImportPanel({
           backdropClassName="wechat-picker-backdrop"
           surfaceAs="section"
           ariaLabelledBy="wechat-album-picker-title"
+          portal
           closeOnBackdrop={!officialImporting}
           closeOnEscape={!officialImporting && !officialPreviewName}
           onClose={() => setOfficialAlbumDialogOpen(false)}
@@ -1105,6 +1280,7 @@ export function WechatImportPanel({
             backdropClassName="wechat-album-preview-backdrop"
             surfaceAs="section"
             ariaLabelledBy="wechat-album-preview-title"
+            portal
             closeOnBackdrop={!officialPreviewLoading}
             closeOnEscape={!officialPreviewLoading}
             onClose={closeOfficialPreview}
@@ -1161,6 +1337,7 @@ export function WechatImportPanel({
           backdropClassName="wechat-picker-backdrop"
           surfaceAs="section"
           ariaLabelledBy="wechat-picker-title"
+          portal
           closeOnBackdrop={!committingSelection}
           closeOnEscape={!committingSelection}
           onClose={() => setSelectionDialogOpen(false)}
@@ -1180,7 +1357,11 @@ export function WechatImportPanel({
               <X size={17} />
             </button>
           </header>
-          <div className="wechat-import-picker-content">
+          <div
+            className={`wechat-import-picker-content${committingSelection ? ' is-committing' : ''}`}
+            aria-busy={committingSelection}
+            inert={committingSelection}
+          >
             {error && <p className="wechat-import-error wechat-picker-error">{error}</p>}
             <StickerPicker
               assets={downloadedImport.stagedImport.assets}
@@ -1193,8 +1374,22 @@ export function WechatImportPanel({
               onOrder={setStagedOrderedIds}
             />
           </div>
-          <footer>
+          <footer className="wechat-import-picker-footer">
             <span>已选择 {stagedSelectedIds.length} 张</span>
+            {committingSelection && (
+              <div className="wechat-import-picker-progress" aria-live="polite">
+                <span>
+                  正在保存到素材库
+                  <strong>
+                    {progress?.completed ?? 0} / {progress?.total ?? stagedSelectedIds.length}
+                  </strong>
+                </span>
+                <ImportProgressLine
+                  completed={progress?.completed ?? 0}
+                  total={progress?.total ?? stagedSelectedIds.length}
+                />
+              </div>
+            )}
             <div className="button-row">
               <button
                 type="button"

@@ -3,6 +3,7 @@ out/
 release/
 dist/
 coverage/
+.plugin-staging/
 .playwright-cli/
 native/wechat4-helper/build/
 native/wechat4-instrumentation/build/

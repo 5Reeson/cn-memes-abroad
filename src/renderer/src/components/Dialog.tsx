@@ -1,4 +1,5 @@
 import { useEffect, type PropsWithChildren } from 'react'
+import { createPortal } from 'react-dom'
 
 interface DialogProps {
   className: string
@@ -8,6 +9,7 @@ interface DialogProps {
   ariaLabelledBy?: string
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
+  portal?: boolean
   onClose(): void
 }
 
@@ -19,6 +21,7 @@ export function Dialog({
   ariaLabelledBy,
   closeOnBackdrop = true,
   closeOnEscape = true,
+  portal = false,
   onClose,
   children,
 }: PropsWithChildren<DialogProps>) {
@@ -35,7 +38,7 @@ export function Dialog({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closeOnEscape, onClose])
 
-  return (
+  const dialog = (
     <div
       className={`preview-backdrop${backdropClassName ? ` ${backdropClassName}` : ''}`}
       role="presentation"
@@ -53,4 +56,6 @@ export function Dialog({
       </Surface>
     </div>
   )
+
+  return portal ? createPortal(dialog, document.body) : dialog
 }

@@ -178,10 +178,21 @@ function clean(): void {
 function buildX64(): void {
   try {
     ensure()
-    execFileSync(join(nodeModules, '.bin', 'electron-builder'), ['--mac', 'dmg', 'zip', '--x64'], {
-      cwd: projectRoot,
-      stdio: 'inherit',
-    })
+    const configPath = process.argv[3]
+    execFileSync(
+      join(nodeModules, '.bin', 'electron-builder'),
+      [
+        ...(configPath === undefined ? [] : ['--config', configPath]),
+        '--mac',
+        'dmg',
+        'zip',
+        '--x64',
+      ],
+      {
+        cwd: projectRoot,
+        stdio: 'inherit',
+      },
+    )
   } finally {
     clean()
   }

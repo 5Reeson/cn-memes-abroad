@@ -9,6 +9,7 @@ import {
   ipcMain,
   nativeImage,
   protocol,
+  shell,
   type IpcMainInvokeEvent,
 } from 'electron'
 
@@ -34,7 +35,8 @@ import {
   type WechatImportStageScope,
 } from './sources/wechat-import-stage-store.js'
 import { Wechat4GateGAcquirer } from './sources/wechat4/gate-g-acquirer.js'
-import { resolveWechat4NativeArtifacts } from './sources/wechat4/native-runtime.js'
+import { VxPluginManager } from './plugins/vx-plugin-capability.js'
+import { VxPluginInstaller } from './plugins/vx-plugin-installer.js'
 import {
   createProductWechat4StickerSource,
   type Wechat4StickerSource,
@@ -68,6 +70,8 @@ import type {
   WechatStageDownloadResult,
 } from '../shared/domain.js'
 import { IPC_CHANNELS } from '../shared/ipc.js'
+import type { VxPluginCapability, VxPluginInstallProgress } from '../shared/vx-plugin.js'
+import { VX_PLUGIN_DISTRIBUTION_CONFIG } from '../shared/vx-plugin-distribution-config.js'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -93,7 +97,10 @@ let preparedSnapshotStore: PreparedSnapshotStore
 let collectionDirectory: string
 let importPreferences: ImportPreferencesStore
 let whatsappManager: WhatsAppManager
-let wechat4Source: Wechat4StickerSource
+let wechat4Source: Wechat4StickerSource | undefined
+let vxPluginManager: VxPluginManager
+let vxPluginInstaller: VxPluginInstaller
+let wechat4KeyStoreDirectory: string
 let wechatImportStageStore: WechatImportStageStore
 const assetPreviewIndex = new AssetPreviewIndex()
 const localSource = new LocalStickerSource()
@@ -109,6 +116,33 @@ let wechat4ImportController: AbortController | null = null
 let wechat4ImportTask: Promise<unknown> | null = null
 let allowQuitAfterWechat4Cleanup = false
 let resolveWechat4FavoritesReady: (() => void) | null = null
+
+function requireWechat4Source(): Wechat4StickerSource {
+  if (!wechat4Source) {
+    throw new Error('新版微信导入组件尚未就绪，请安装或更新组件后重新检测。')
+  }
+  return wechat4Source
+}
+
+async function refreshVxPluginRuntime(): Promise<VxPluginCapability> {
+  const capability = await vxPluginManager.refresh()
+  wechat4Source = undefined
+  const plugin = vxPluginManager.getReadyPlugin()
+  if (!plugin) return capability
+
+  const wechat4Acquirer = new Wechat4GateGAcquirer({
+    artifacts: plugin.artifacts,
+    candidateTimeoutMs: 10 * 60_000,
+    onStatus: sendWechat4GateStatus,
+    waitForFavoritesReady: waitForWechat4FavoritesReady,
+  })
+  wechat4Source = createProductWechat4StickerSource({
+    helper: { executable: plugin.artifacts.helperPath, timeoutMs: 90_000 },
+    keyStoreDirectory: wechat4KeyStoreDirectory,
+    acquireCandidate: (request) => wechat4Acquirer.acquire(request),
+  })
+  return capability
+}
 
 function waitForWechat4FavoritesReady(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
@@ -133,6 +167,12 @@ function waitForWechat4FavoritesReady(signal?: AbortSignal): Promise<void> {
 function sendWechat4GateStatus(status: Wechat4GateStatus): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.wechat4GateStatus, status)
+  }
+}
+
+function sendVxPluginInstallProgress(progress: VxPluginInstallProgress): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.vxPluginInstallProgress, progress)
   }
 }
 
@@ -459,6 +499,64 @@ async function chooseImportPaths(mode: ImportMode): Promise<string[]> {
 }
 
 function installIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.vxPluginGetCapability, () => vxPluginManager.getCapability())
+
+  ipcMain.handle(IPC_CHANNELS.vxPluginRefresh, async () => {
+    if (wechat4ImportController) {
+      throw new Error('新版微信任务运行期间无法重新检测组件。')
+    }
+    return refreshVxPluginRuntime()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.vxPluginOpenInstallPage, async () => {
+    const installPageUrl = vxPluginManager.getInstallPageUrl()
+    if (!installPageUrl) return false
+    await shell.openExternal(installPageUrl)
+    return true
+  })
+
+  ipcMain.handle(IPC_CHANNELS.vxPluginGetDistributionAvailability, () => ({
+    localPackageInstall: true as const,
+    remoteInstall: vxPluginInstaller.getRemoteInstallAvailable(),
+  }))
+
+  ipcMain.handle(IPC_CHANNELS.vxPluginInstallRemote, async () => {
+    if (wechat4ImportController) throw new Error('新版微信任务运行期间无法安装组件。')
+    try {
+      return {
+        canceled: false,
+        capability: await vxPluginInstaller.installFromRemote(),
+      }
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.vxPluginChoosePackage, async () => {
+    if (wechat4ImportController) throw new Error('新版微信任务运行期间无法安装组件。')
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '选择微信组件安装包',
+      buttonLabel: '验证并安装',
+      defaultPath: app.getPath('downloads'),
+      properties: ['openFile'],
+      filters: [
+        { name: '微信组件安装包', extensions: ['zip'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return { canceled: true, capability: vxPluginManager.getCapability() }
+    }
+    try {
+      return {
+        canceled: false,
+        capability: await vxPluginInstaller.installFromLocalPackage(result.filePaths[0]),
+      }
+    } catch (error) {
+      throw sanitizeError(error)
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.getCollection, async () => {
     try {
       return toCollectionView(await manifestStore.loadOrCreate())
@@ -926,7 +1024,8 @@ function installIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.wechat4Discover, async (): Promise<Wechat4ImportDiscoveryView> => {
     try {
-      const discovery = await wechat4Source.discover()
+      const source = requireWechat4Source()
+      const discovery = await source.discover()
       return {
         rootFound: discovery.rootFound,
         permissionDenied: discovery.permissionDenied,
@@ -937,7 +1036,7 @@ function installIpcHandlers(): void {
             databaseBytes,
             walPresent,
             shmPresent,
-            authorizationCached: await wechat4Source.hasCachedAuthorization(id),
+            authorizationCached: await source.hasCachedAuthorization(id),
           })),
         ),
         failures: discovery.failures.map((failure) => failure.message),
@@ -969,7 +1068,8 @@ function installIpcHandlers(): void {
       const task = (async (): Promise<WechatAccountPreviewResult> => {
         sendWechat4GateStatus({ phase: 'preparing', message: '正在检查已验证的安全缓存' })
         try {
-          const sourceLabel = (await wechat4Source.discover()).accounts.find(
+          const source = requireWechat4Source()
+          const sourceLabel = (await source.discover()).accounts.find(
             (account) => account.id === accountId,
           )?.label
           const staged = await enqueueMutation(() =>
@@ -978,7 +1078,7 @@ function installIpcHandlers(): void {
               'current',
               accountId,
               (collection, directory) =>
-                wechat4Source.import(
+                source.import(
                   {
                     accountId,
                     ...(sourceLabel === undefined ? {} : { sourceLabel }),
@@ -1047,7 +1147,8 @@ function installIpcHandlers(): void {
       const task = (async (): Promise<WechatStageDownloadResult> => {
         sendWechat4GateStatus({ phase: 'preparing', message: '正在检查已验证的安全缓存' })
         try {
-          const sourceLabel = (await wechat4Source.discover()).accounts.find(
+          const source = requireWechat4Source()
+          const sourceLabel = (await source.discover()).accounts.find(
             (account) => account.id === accountId,
           )?.label
           const staged = await enqueueMutation(() =>
@@ -1056,7 +1157,7 @@ function installIpcHandlers(): void {
               'current',
               accountId,
               (collection, directory) =>
-                wechat4Source.import(
+                source.import(
                   {
                     accountId,
                     ...(sourceLabel === undefined ? {} : { sourceLabel }),
@@ -1111,9 +1212,10 @@ function installIpcHandlers(): void {
         throw new TypeError('Invalid WeChat 4 account ID')
       }
       try {
+        const source = requireWechat4Source()
         const [albums, discovery] = await Promise.all([
-          wechat4Source.listOfficialAlbums(accountId),
-          wechat4Source.discover(),
+          source.listOfficialAlbums(accountId),
+          source.discover(),
         ])
         const sourceLabel = discovery.accounts.find((account) => account.id === accountId)?.label
         const cachedPackageIds = albums
@@ -1127,7 +1229,7 @@ function installIpcHandlers(): void {
                 'current',
                 accountId,
                 (collection, directory) =>
-                  wechat4Source.importOfficialAlbums({
+                  source.importOfficialAlbums({
                     accountId,
                     ...(sourceLabel === undefined ? {} : { sourceLabel }),
                     collection,
@@ -1180,7 +1282,8 @@ function installIpcHandlers(): void {
         throw new TypeError('Invalid official WeChat package ID')
       }
       try {
-        const sourceLabel = (await wechat4Source.discover()).accounts.find(
+        const source = requireWechat4Source()
+        const sourceLabel = (await source.discover()).accounts.find(
           (account) => account.id === accountId,
         )?.label
         const staged = await enqueueMutation(() =>
@@ -1189,7 +1292,7 @@ function installIpcHandlers(): void {
             'current',
             accountId,
             (collection, directory) =>
-              wechat4Source.importOfficialAlbums({
+              source.importOfficialAlbums({
                 accountId,
                 ...(sourceLabel === undefined ? {} : { sourceLabel }),
                 collection,
@@ -1242,12 +1345,13 @@ function installIpcHandlers(): void {
       try {
         return await enqueueMutation(async () => {
           const collection = await manifestStore.loadOrCreate()
-          const sourceLabel = (await wechat4Source.discover()).accounts.find(
+          const source = requireWechat4Source()
+          const sourceLabel = (await source.discover()).accounts.find(
             (account) => account.id === accountId,
           )?.label
           let uncommittedOriginalPaths: string[] = []
           try {
-            const result = await wechat4Source.importOfficialAlbums(
+            const result = await source.importOfficialAlbums(
               {
                 accountId,
                 ...(sourceLabel === undefined ? {} : { sourceLabel }),
@@ -1344,13 +1448,14 @@ function installIpcHandlers(): void {
         try {
           return await enqueueMutation(async (): Promise<ImportSummary> => {
             const collection = await manifestStore.loadOrCreate()
-            const sourceLabel = (await wechat4Source.discover()).accounts.find(
+            const source = requireWechat4Source()
+            const sourceLabel = (await source.discover()).accounts.find(
               (account) => account.id === accountId,
             )?.label
             let uncommittedOriginalPaths: string[] = []
             try {
               controller.signal.throwIfAborted()
-              const result = await wechat4Source.import(
+              const result = await source.import(
                 {
                   accountId,
                   ...(sourceLabel === undefined ? {} : { sourceLabel }),
@@ -1815,21 +1920,30 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   const userDataDirectory = app.getPath('userData')
-  const wechat4Artifacts = resolveWechat4NativeArtifacts({
-    packaged: app.isPackaged,
-    ...(app.isPackaged ? { resourcesPath: process.resourcesPath } : { projectRoot: process.cwd() }),
+  const configuredInstallPageUrl =
+    process.env.VX_PLUGIN_INSTALL_PAGE_URL ?? VX_PLUGIN_DISTRIBUTION_CONFIG.installPageUrl
+  wechat4KeyStoreDirectory = join(userDataDirectory, 'wechat4', 'keys')
+  vxPluginManager = new VxPluginManager({
+    architecture: process.arch,
+    roots: [
+      join(userDataDirectory, 'plugins', 'vx', 'current'),
+      ...(app.isPackaged
+        ? [join(process.resourcesPath, 'vx-plugin')]
+        : [join(process.cwd(), '.plugin-staging', 'vx')]),
+    ],
+    ...(configuredInstallPageUrl === undefined
+      ? {}
+      : { defaultInstallPageUrl: configuredInstallPageUrl }),
   })
-  const wechat4Acquirer = new Wechat4GateGAcquirer({
-    artifacts: wechat4Artifacts,
-    candidateTimeoutMs: 10 * 60_000,
-    onStatus: sendWechat4GateStatus,
-    waitForFavoritesReady: waitForWechat4FavoritesReady,
+  vxPluginInstaller = new VxPluginInstaller({
+    architecture: process.arch,
+    installRoot: join(userDataDirectory, 'plugins', 'vx'),
+    indexUrl: VX_PLUGIN_DISTRIBUTION_CONFIG.indexUrl,
+    defaultInstallPageUrl: configuredInstallPageUrl,
+    activate: refreshVxPluginRuntime,
+    onProgress: sendVxPluginInstallProgress,
   })
-  wechat4Source = createProductWechat4StickerSource({
-    helper: { executable: wechat4Artifacts.helperPath, timeoutMs: 90_000 },
-    keyStoreDirectory: join(userDataDirectory, 'wechat4', 'keys'),
-    acquireCandidate: (request) => wechat4Acquirer.acquire(request),
-  })
+  await refreshVxPluginRuntime()
   collectionDirectory = join(userDataDirectory, 'library', 'collections', 'default')
   manifestStore = new ManifestStore(collectionDirectory)
   wechatImportStageStore = new WechatImportStageStore(
