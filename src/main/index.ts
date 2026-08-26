@@ -516,7 +516,6 @@ function installIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.vxPluginGetDistributionAvailability, () => ({
-    localPackageInstall: true as const,
     remoteInstall: vxPluginInstaller.getRemoteInstallAvailable(),
   }))
 
@@ -1939,7 +1938,6 @@ app.whenReady().then(async () => {
     architecture: process.arch,
     installRoot: join(userDataDirectory, 'plugins', 'vx'),
     indexUrl: VX_PLUGIN_DISTRIBUTION_CONFIG.indexUrl,
-    defaultInstallPageUrl: configuredInstallPageUrl,
     activate: refreshVxPluginRuntime,
     onProgress: sendVxPluginInstallProgress,
   })

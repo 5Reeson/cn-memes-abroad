@@ -60,7 +60,6 @@ export interface VxPluginInstallerOptions {
   architecture: string
   installRoot: string
   indexUrl?: string
-  defaultInstallPageUrl?: string
   fetch?: typeof fetch
   activate: () => Promise<VxPluginCapability>
   onProgress?: (progress: VxPluginInstallProgress) => void
@@ -246,7 +245,6 @@ export class VxPluginInstaller {
   private readonly architecture: string
   private readonly installRoot: string
   private readonly indexUrl: string | undefined
-  private readonly defaultInstallPageUrl: string | undefined
   private readonly fetchImplementation: typeof fetch
   private readonly activate: () => Promise<VxPluginCapability>
   private readonly onProgress: ((progress: VxPluginInstallProgress) => void) | undefined
@@ -256,7 +254,6 @@ export class VxPluginInstaller {
     this.architecture = options.architecture
     this.installRoot = options.installRoot
     this.indexUrl = fixedHttpsUrl(options.indexUrl)
-    this.defaultInstallPageUrl = fixedHttpsUrl(options.defaultInstallPageUrl)
     this.fetchImplementation = options.fetch ?? fetch
     this.activate = options.activate
     this.onProgress = options.onProgress
@@ -499,7 +496,6 @@ export class VxPluginInstaller {
     const manager = new VxPluginManager({
       architecture: this.architecture,
       roots: [directory],
-      ...(this.defaultInstallPageUrl ? { defaultInstallPageUrl: this.defaultInstallPageUrl } : {}),
     })
     const capability = await manager.refresh()
     if (capability.state !== 'ready') {

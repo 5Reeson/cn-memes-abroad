@@ -20,7 +20,6 @@ export type VxPluginCapability =
     }
 
 export interface VxPluginDistributionAvailability {
-  localPackageInstall: true
   remoteInstall: boolean
 }
 

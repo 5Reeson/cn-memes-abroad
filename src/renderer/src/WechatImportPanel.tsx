@@ -197,7 +197,6 @@ export function WechatImportPanel({
   const [pluginInstallProgress, setPluginInstallProgress] =
     useState<VxPluginInstallProgress | null>(null)
   const [pluginDistribution, setPluginDistribution] = useState<VxPluginDistributionAvailability>({
-    localPackageInstall: true,
     remoteInstall: false,
   })
   const {
@@ -748,19 +747,17 @@ export function WechatImportPanel({
                 onClick={() => void installPlugin('remote')}
               >
                 <DownloadSimple size={16} />
-                {pluginInstalling ? '正在安装' : '下载并安装'}
+                {pluginInstalling ? '正在安装' : '下载安装'}
               </button>
             )}
-            {pluginDistribution.localPackageInstall && (
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={pluginInstalling || pluginRefreshing}
-                onClick={() => void installPlugin('local')}
-              >
-                选择本地安装包
-              </button>
-            )}
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={pluginInstalling || pluginRefreshing}
+              onClick={() => void installPlugin('local')}
+            >
+              本地导入
+            </button>
             {pluginCapability.installPageUrl && (
               <button
                 type="button"
@@ -776,9 +773,10 @@ export function WechatImportPanel({
               className="secondary-button"
               disabled={pluginRefreshing || pluginInstalling}
               onClick={() => void refreshPlugin()}
+              aria-label={pluginRefreshing ? '正在重新检测组件' : '重新检测组件'}
+              title={pluginRefreshing ? '正在重新检测组件' : '重新检测组件'}
             >
               <ArrowClockwise size={16} className={pluginRefreshing ? 'is-spinning' : undefined} />
-              {pluginRefreshing ? '正在检测' : '重新检测'}
             </button>
           </div>
         </div>

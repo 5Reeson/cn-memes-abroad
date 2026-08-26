@@ -31,7 +31,6 @@
     "phase7:native:build": "npm run phase7:helper:build && npm run phase7:instrumentation:build",
     "vx-plugin:stage": "npm run phase7:native:build && node --import tsx scripts/stage-vx-plugin.ts",
     "vx-plugin:package": "npm run vx-plugin:stage && node --import tsx scripts/package-vx-plugin.ts",
-    "vx-plugin:package:staged": "node --import tsx scripts/package-vx-plugin.ts",
     "phase7:helper:test": "node --import tsx scripts/test-wechat4-helper.ts",
     "phase7:instrumentation:build": "sh native/wechat4-instrumentation/build.sh",
     "phase7:instrumentation:test": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/test-wechat4-instrumentation.ts",

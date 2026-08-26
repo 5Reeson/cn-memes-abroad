@@ -8,4 +8,6 @@
 export const VX_PLUGIN_DISTRIBUTION_CONFIG: {
   indexUrl?: string
   installPageUrl?: string
-} = {}
+} = {
+  indexUrl: 'https://plugins.tudu-stickers.com/index.json',
+}
