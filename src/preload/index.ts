@@ -73,6 +73,9 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.vxPluginGetDistributionAvailability),
   installVxPluginFromRemote: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginInstallRemote),
   chooseVxPluginPackage: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginChoosePackage),
+  getAppUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateGetState),
+  checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
+  openAppUpdateReleasePage: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateOpenReleasePage),
   reorderAssets: (orderedIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.reorderAssets, orderedIds),
   removeAssets: (assetIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.removeAssets, assetIds),
@@ -138,6 +141,12 @@ const api: StickerAppApi = {
       listener(progress)
     ipcRenderer.on(IPC_CHANNELS.vxPluginInstallProgress, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.vxPluginInstallProgress, handler)
+  },
+  onAppUpdateAvailable: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, update: Parameters<typeof listener>[0]) =>
+      listener(update)
+    ipcRenderer.on(IPC_CHANNELS.appUpdateAvailable, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appUpdateAvailable, handler)
   },
 }
 

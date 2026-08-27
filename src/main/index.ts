@@ -38,6 +38,11 @@ import { Wechat4GateGAcquirer } from './sources/wechat4/gate-g-acquirer.js'
 import { VxPluginManager } from './plugins/vx-plugin-capability.js'
 import { VxPluginInstaller } from './plugins/vx-plugin-installer.js'
 import {
+  AppUpdateService,
+  readBuildFlavor,
+  shouldCheckForUpdatesAutomatically,
+} from './updates/app-update-service.js'
+import {
   createProductWechat4StickerSource,
   type Wechat4StickerSource,
 } from './sources/wechat4/wechat4-source.js'
@@ -72,6 +77,8 @@ import type {
 import { IPC_CHANNELS } from '../shared/ipc.js'
 import type { VxPluginCapability, VxPluginInstallProgress } from '../shared/vx-plugin.js'
 import { VX_PLUGIN_DISTRIBUTION_CONFIG } from '../shared/vx-plugin-distribution-config.js'
+import { APP_UPDATE_CONFIG } from '../shared/app-update-config.js'
+import type { AppUpdateCheckResult, AppUpdateInfo } from '../shared/app-update.js'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -100,6 +107,7 @@ let whatsappManager: WhatsAppManager
 let wechat4Source: Wechat4StickerSource | undefined
 let vxPluginManager: VxPluginManager
 let vxPluginInstaller: VxPluginInstaller
+let appUpdateService: AppUpdateService
 let wechat4KeyStoreDirectory: string
 let wechatImportStageStore: WechatImportStageStore
 const assetPreviewIndex = new AssetPreviewIndex()
@@ -174,6 +182,16 @@ function sendVxPluginInstallProgress(progress: VxPluginInstallProgress): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.vxPluginInstallProgress, progress)
   }
+}
+
+function sendAppUpdateAvailable(update: AppUpdateInfo): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.appUpdateAvailable, update)
+  }
+}
+
+function announceAvailableUpdate(result: AppUpdateCheckResult | undefined): void {
+  if (result?.status === 'available') sendAppUpdateAvailable(result.update)
 }
 
 function sanitizeError(error: unknown): Error {
@@ -499,6 +517,20 @@ async function chooseImportPaths(mode: ImportMode): Promise<string[]> {
 }
 
 function installIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.appUpdateGetState, () => appUpdateService.getState())
+
+  ipcMain.handle(IPC_CHANNELS.appUpdateCheck, async () => {
+    const result = await appUpdateService.check()
+    announceAvailableUpdate(result)
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.appUpdateOpenReleasePage, async () => {
+    const releasePage = new URL(APP_UPDATE_CONFIG.releasePageUrl)
+    if (releasePage.protocol !== 'https:') throw new Error('更新页面必须使用 HTTPS')
+    await shell.openExternal(releasePage.href)
+  })
+
   ipcMain.handle(IPC_CHANNELS.vxPluginGetCapability, () => vxPluginManager.getCapability())
 
   ipcMain.handle(IPC_CHANNELS.vxPluginRefresh, async () => {
@@ -1917,8 +1949,24 @@ function createWindow(): void {
   }
 }
 
+async function scheduleAutomaticUpdateCheck(): Promise<void> {
+  const flavor = await readBuildFlavor(app.getAppPath())
+  if (!shouldCheckForUpdatesAutomatically(app.isPackaged, flavor)) return
+  const timer = setTimeout(() => {
+    void appUpdateService.checkAutomaticallyIfDue().then(announceAvailableUpdate)
+  }, APP_UPDATE_CONFIG.startupDelayMs)
+  timer.unref()
+}
+
 app.whenReady().then(async () => {
   const userDataDirectory = app.getPath('userData')
+  appUpdateService = new AppUpdateService({
+    currentVersion: app.getVersion(),
+    latestReleaseApiUrl: APP_UPDATE_CONFIG.latestReleaseApiUrl,
+    automaticCheckIntervalMs: APP_UPDATE_CONFIG.automaticCheckIntervalMs,
+    requestTimeoutMs: APP_UPDATE_CONFIG.requestTimeoutMs,
+    lastCheckPath: join(userDataDirectory, 'settings', 'app-update.json'),
+  })
   const configuredInstallPageUrl =
     process.env.VX_PLUGIN_INSTALL_PAGE_URL ?? VX_PLUGIN_DISTRIBUTION_CONFIG.installPageUrl
   wechat4KeyStoreDirectory = join(userDataDirectory, 'wechat4', 'keys')
@@ -1981,6 +2029,7 @@ app.whenReady().then(async () => {
   await installSnapshotProtocol()
   await installWechatStageProtocol()
   createWindow()
+  void scheduleAutomaticUpdateCheck()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

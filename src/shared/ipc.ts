@@ -38,6 +38,7 @@ import type {
   VxPluginInstallProgress,
   VxPluginInstallResult,
 } from './vx-plugin.js'
+import type { AppUpdateCheckResult, AppUpdateInfo, AppUpdateState } from './app-update.js'
 
 export const IPC_CHANNELS = {
   getCollection: 'library:get-collection',
@@ -84,6 +85,10 @@ export const IPC_CHANNELS = {
   vxPluginInstallRemote: 'vx-plugin:install-remote',
   vxPluginChoosePackage: 'vx-plugin:choose-package',
   vxPluginInstallProgress: 'vx-plugin:install-progress',
+  appUpdateGetState: 'app-update:get-state',
+  appUpdateCheck: 'app-update:check',
+  appUpdateOpenReleasePage: 'app-update:open-release-page',
+  appUpdateAvailable: 'app-update:available',
   reorderAssets: 'library:reorder-assets',
   removeAssets: 'library:remove-assets',
   setSelection: 'library:set-selection',
@@ -173,6 +178,9 @@ export interface StickerAppApi {
   getVxPluginDistributionAvailability(): Promise<VxPluginDistributionAvailability>
   installVxPluginFromRemote(): Promise<VxPluginInstallResult>
   chooseVxPluginPackage(): Promise<VxPluginInstallResult>
+  getAppUpdateState(): Promise<AppUpdateState>
+  checkForAppUpdate(): Promise<AppUpdateCheckResult>
+  openAppUpdateReleasePage(): Promise<void>
   reorderAssets(orderedIds: string[]): Promise<CollectionView>
   removeAssets(assetIds: string[]): Promise<CollectionView>
   setSelection(selectedIds: string[]): Promise<CollectionView>
@@ -194,4 +202,5 @@ export interface StickerAppApi {
   onWechat4Progress(listener: (progress: ImportProgress) => void): () => void
   onWechat4GateStatus(listener: (status: Wechat4GateStatus) => void): () => void
   onVxPluginInstallProgress(listener: (progress: VxPluginInstallProgress) => void): () => void
+  onAppUpdateAvailable(listener: (update: AppUpdateInfo) => void): () => void
 }
