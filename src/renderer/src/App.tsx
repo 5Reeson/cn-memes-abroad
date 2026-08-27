@@ -29,6 +29,11 @@ import type {
   PreparedSnapshotSummary,
   WhatsAppConnectionView,
 } from '../../shared/domain.js'
+import type {
+  AppUpdateCheckResult,
+  AppUpdateInfo,
+  AppUpdateState,
+} from '../../shared/app-update.js'
 import { toErrorMessage } from '../../shared/errors.js'
 import {
   INITIAL_WHATSAPP_CONNECTION,
@@ -112,6 +117,8 @@ export function App() {
   const [wechatOpen, setWechatOpen] = useState(false)
   const [wechatSession, setWechatSession] = useState(createWechatImportSessionState)
   const [wechatImportReady, setWechatImportReady] = useState(false)
+  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null)
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false)
 
   useEffect(() => {
     const api = window.stickerApp
@@ -123,6 +130,10 @@ export function App() {
     const unsubscribeImport = api.onImportProgress(setProgress)
     const unsubscribePrepare = api.onPrepareProgress(setPrepareProgress)
     const unsubscribeStatus = api.onWhatsAppStatus(setWhatsApp)
+    const unsubscribeAppUpdate = api.onAppUpdateAvailable((update: AppUpdateInfo) => {
+      setAppUpdateState({ currentVersion: update.currentVersion, availableUpdate: update })
+      setUpdateBannerDismissed(false)
+    })
     Promise.all([
       api.getCollection(),
       api.getExportTask().then(async (nextTask) => ({
@@ -135,23 +146,35 @@ export function App() {
       api.listPreparedSnapshots(),
       api.getWhatsAppStatus(),
       api.getDefaultExportDirectory(),
+      api.getAppUpdateState(),
     ])
-      .then(([nextCollection, taskResult, nextSnapshots, status, nextDefaultDirectory]) => {
-        const { task: nextTask, directory: nextTaskDirectory } = taskResult
-        setCollection(nextCollection)
-        taskRef.current = nextTask
-        setTask(nextTask)
-        setTaskDirectory(nextTaskDirectory ?? null)
-        setDefaultDirectory(nextDefaultDirectory ?? null)
-        setSnapshots(nextSnapshots)
-        setWhatsApp(status)
-      })
+      .then(
+        ([
+          nextCollection,
+          taskResult,
+          nextSnapshots,
+          status,
+          nextDefaultDirectory,
+          nextAppUpdateState,
+        ]) => {
+          const { task: nextTask, directory: nextTaskDirectory } = taskResult
+          setCollection(nextCollection)
+          taskRef.current = nextTask
+          setTask(nextTask)
+          setTaskDirectory(nextTaskDirectory ?? null)
+          setDefaultDirectory(nextDefaultDirectory ?? null)
+          setSnapshots(nextSnapshots)
+          setWhatsApp(status)
+          setAppUpdateState(nextAppUpdateState)
+        },
+      )
       .catch(showError)
       .finally(() => setLoading(false))
     return () => {
       unsubscribeImport()
       unsubscribePrepare()
       unsubscribeStatus()
+      unsubscribeAppUpdate()
     }
   }, [])
 
@@ -284,6 +307,24 @@ export function App() {
     const directory = await window.stickerApp?.chooseDefaultExportDirectory()
     if (!directory) return
     setDefaultDirectory(directory)
+  }
+
+  async function checkForAppUpdate(): Promise<AppUpdateCheckResult> {
+    const result = await window.stickerApp!.checkForAppUpdate()
+    if (result.status === 'available') {
+      setAppUpdateState({
+        currentVersion: result.update.currentVersion,
+        availableUpdate: result.update,
+      })
+      setUpdateBannerDismissed(false)
+    } else if (result.status === 'up-to-date') {
+      setAppUpdateState({ currentVersion: result.currentVersion })
+    }
+    return result
+  }
+
+  function openAppUpdateReleasePage() {
+    void window.stickerApp?.openAppUpdateReleasePage().catch(showError)
   }
 
   async function prepareTask() {
@@ -516,7 +557,10 @@ export function App() {
       <SettingsPage
         task={task}
         defaultDirectory={defaultDirectory}
+        updateState={appUpdateState}
         onChooseDirectory={chooseDefaultDirectory}
+        onCheckUpdate={checkForAppUpdate}
+        onOpenUpdatePage={openAppUpdateReleasePage}
       />
     ) : (
       <AboutPage />
@@ -544,6 +588,15 @@ export function App() {
     >
       {error && <ProductBanner tone="error" message={error} onDismiss={() => setError(null)} />}
       {notice && <ProductBanner tone="notice" message={notice} onDismiss={() => setNotice(null)} />}
+      {!error && !notice && !updateBannerDismissed && appUpdateState?.availableUpdate && (
+        <ProductBanner
+          tone="notice"
+          message={`发现新版本 ${appUpdateState.availableUpdate.latestVersion}`}
+          actionLabel="查看版本"
+          onAction={openAppUpdateReleasePage}
+          onDismiss={() => setUpdateBannerDismissed(true)}
+        />
+      )}
       {snapshotPreview && (
         <SnapshotPreviewDialog
           snapshot={snapshotPreview}

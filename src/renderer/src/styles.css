@@ -476,6 +476,64 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.wechat-plugin-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--line));
+  border-radius: var(--radius-control);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning-soft) 55%, var(--surface-raised));
+}
+
+.wechat-plugin-notice > div:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.wechat-plugin-notice strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.wechat-plugin-notice p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wechat-plugin-install-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wechat-plugin-install-progress .progress-line {
+  width: min(360px, 100%);
+}
+
+.wechat-plugin-notice .button-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 980px) {
+  .wechat-plugin-notice {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .wechat-plugin-notice .button-row {
+    grid-column: 1 / -1;
+  }
+}
+
 .wechat4-consent-title {
   display: flex;
   align-items: center;
@@ -1015,15 +1073,18 @@ button:disabled {
 
 .wechat-picker-backdrop {
   z-index: 42;
-  padding: clamp(12px, 3vh, 30px);
+  overflow: hidden;
+  padding: clamp(10px, 3vmin, 30px);
 }
 
 .wechat-import-picker-dialog {
   display: grid;
   grid-template-rows: max-content minmax(0, 1fr) max-content;
-  width: min(1180px, 94vw);
-  height: min(820px, calc(100dvh - 24px));
-  max-height: calc(100dvh - 24px);
+  width: min(1180px, 100%);
+  max-width: 100%;
+  height: min(820px, 100%);
+  min-height: 0;
+  max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1072,10 +1133,90 @@ button:disabled {
   min-height: 0;
   overflow: auto;
   padding: 18px 22px 24px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+.wechat-import-picker-content.is-committing .picker-toolbar,
+.wechat-import-picker-content.is-committing .picker-selection-bar,
+.wechat-import-picker-content.is-committing .picker-grid,
+.wechat-import-picker-content.is-committing .progressive-load-more {
+  pointer-events: none;
+}
+
+.wechat-import-picker-content.is-committing .sticker-picker {
+  opacity: 0.72;
+}
+
+.wechat-import-picker-dialog > footer.wechat-import-picker-footer {
+  display: grid;
+  grid-template-columns: max-content minmax(160px, 1fr) max-content;
+}
+
+.wechat-import-picker-footer > span:first-child {
+  grid-column: 1;
+}
+
+.wechat-import-picker-footer > .wechat-import-picker-progress {
+  grid-column: 2;
+}
+
+.wechat-import-picker-footer > .button-row {
+  grid-column: 3;
+}
+
+.wechat-import-picker-progress {
+  display: grid;
+  width: min(100%, 440px);
+  min-width: 0;
+  gap: 7px;
+  justify-self: center;
+}
+
+.wechat-import-picker-progress > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.wechat-import-picker-progress strong {
+  color: var(--text);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .wechat-album-picker-dialog {
-  width: min(1040px, 94vw);
+  width: min(1040px, 100%);
+}
+
+@media (max-height: 640px) {
+  .wechat-import-picker-dialog > header,
+  .wechat-import-picker-dialog > footer {
+    padding-block: 12px;
+  }
+
+  .wechat-import-picker-content {
+    padding-block: 12px 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .wechat-import-picker-dialog > header,
+  .wechat-import-picker-dialog > footer {
+    padding-inline: 16px;
+  }
+
+  .wechat-import-picker-content {
+    padding-inline: 16px;
+  }
+
+  .wechat-import-picker-dialog > footer.wechat-import-picker-footer {
+    grid-template-columns: max-content minmax(120px, 1fr) max-content;
+    gap: 12px;
+  }
 }
 
 .wechat-album-list {
@@ -3032,6 +3173,10 @@ button:disabled {
   color: #237648;
 }
 
+.product-banner.has-action {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
 .product-banner button {
   display: grid;
   padding: 2px;
@@ -3039,6 +3184,16 @@ button:disabled {
   color: currentColor;
   background: transparent;
   place-items: center;
+}
+
+.product-banner .product-banner-action {
+  display: inline-flex;
+  padding: 4px 7px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .product-loading {
@@ -4242,6 +4397,16 @@ button:disabled {
 
 .settings-row:hover:is(button) {
   background: var(--surface);
+}
+
+.settings-row:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.settings-refresh-icon {
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .settings-status {

@@ -1,0 +1,12 @@
+extends: build/electron-builder.base.yml
+directories:
+  output: release/official
+extraMetadata:
+  buildFlavor: official
+extraResources:
+  - from: .plugin-staging/vx
+    to: vx-plugin
+    filter:
+      - manifest.json
+      - vx-helper
+      - libvx-interposer.dylib

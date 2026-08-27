@@ -66,6 +66,16 @@ const api: StickerAppApi = {
     ipcRenderer.invoke(IPC_CHANNELS.wechat4Import, accountId, confirmed, downloadMode),
   cancelWechat4Import: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4Cancel),
   confirmWechat4FavoritesReady: () => ipcRenderer.invoke(IPC_CHANNELS.wechat4FavoritesReady),
+  getVxPluginCapability: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginGetCapability),
+  refreshVxPluginCapability: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginRefresh),
+  openVxPluginInstallPage: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginOpenInstallPage),
+  getVxPluginDistributionAvailability: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.vxPluginGetDistributionAvailability),
+  installVxPluginFromRemote: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginInstallRemote),
+  chooseVxPluginPackage: () => ipcRenderer.invoke(IPC_CHANNELS.vxPluginChoosePackage),
+  getAppUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateGetState),
+  checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
+  openAppUpdateReleasePage: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateOpenReleasePage),
   reorderAssets: (orderedIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.reorderAssets, orderedIds),
   removeAssets: (assetIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.removeAssets, assetIds),
@@ -125,6 +135,18 @@ const api: StickerAppApi = {
       listener(status)
     ipcRenderer.on(IPC_CHANNELS.wechat4GateStatus, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.wechat4GateStatus, handler)
+  },
+  onVxPluginInstallProgress: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof listener>[0]) =>
+      listener(progress)
+    ipcRenderer.on(IPC_CHANNELS.vxPluginInstallProgress, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.vxPluginInstallProgress, handler)
+  },
+  onAppUpdateAvailable: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, update: Parameters<typeof listener>[0]) =>
+      listener(update)
+    ipcRenderer.on(IPC_CHANNELS.appUpdateAvailable, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appUpdateAvailable, handler)
   },
 }
 

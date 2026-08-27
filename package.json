@@ -9,9 +9,15 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
-    "package:mac": "npm run phase7:native:build && npm run build && electron-builder --mac --dir",
-    "package:mac:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run phase7:native:build && npm run build && electron-builder --mac dmg zip --arm64",
-    "package:mac:x64": "npm run phase7:native:build && npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64",
+    "package:mac": "npm run package:mac:community",
+    "package:mac:community": "npm run build && electron-builder --config build/electron-builder.community.yml --mac --dir",
+    "package:mac:official": "npm run vx-plugin:stage && npm run build && electron-builder --config build/electron-builder.official.yml --mac --dir",
+    "package:mac:arm64": "npm run package:mac:community:arm64",
+    "package:mac:community:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run build && electron-builder --config build/electron-builder.community.yml --mac dmg zip --arm64",
+    "package:mac:official:arm64": "node --import tsx scripts/sharp-x64-deps.ts clean && npm run vx-plugin:stage && npm run build && electron-builder --config build/electron-builder.official.yml --mac dmg zip --arm64",
+    "package:mac:x64": "npm run package:mac:community:x64",
+    "package:mac:community:x64": "npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64 build/electron-builder.community.yml",
+    "package:mac:official:x64": "npm run vx-plugin:stage && npm run build && node --import tsx scripts/sharp-x64-deps.ts build-x64 build/electron-builder.official.yml",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
@@ -23,6 +29,8 @@
     "phase7:inspect": "node --import tsx src/phase7-inspect.ts",
     "phase7:helper:build": "sh native/wechat4-helper/build.sh",
     "phase7:native:build": "npm run phase7:helper:build && npm run phase7:instrumentation:build",
+    "vx-plugin:stage": "npm run phase7:native:build && node --import tsx scripts/stage-vx-plugin.ts",
+    "vx-plugin:package": "npm run vx-plugin:stage && node --import tsx scripts/package-vx-plugin.ts",
     "phase7:helper:test": "node --import tsx scripts/test-wechat4-helper.ts",
     "phase7:instrumentation:build": "sh native/wechat4-instrumentation/build.sh",
     "phase7:instrumentation:test": "npm run phase7:helper:build && npm run phase7:instrumentation:build && node --import tsx scripts/test-wechat4-instrumentation.ts",
@@ -73,34 +81,5 @@
     "typescript-eslint": "8.66.0",
     "vite": "7.3.6",
     "vitest": "4.1.10"
-  },
-  "build": {
-    "appId": "com.cnmemesabroad.desktop",
-    "productName": "图渡",
-    "asar": true,
-    "artifactName": "${name}-${version}-${arch}.${ext}",
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "native/wechat4-helper/build/universal/wechat4-helper",
-        "to": "wechat4-native/wechat4-helper"
-      },
-      {
-        "from": "native/wechat4-instrumentation/build/universal/libwechat4-synthetic-interposer.dylib",
-        "to": "wechat4-native/libwechat4-emoticon-interposer.dylib"
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.utilities",
-      "identity": null,
-      "minimumSystemVersion": "13.0",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    }
   }
 }

@@ -32,6 +32,13 @@ import type {
   WechatDownloadMode,
   WechatStageDownloadResult,
 } from './domain.js'
+import type {
+  VxPluginCapability,
+  VxPluginDistributionAvailability,
+  VxPluginInstallProgress,
+  VxPluginInstallResult,
+} from './vx-plugin.js'
+import type { AppUpdateCheckResult, AppUpdateInfo, AppUpdateState } from './app-update.js'
 
 export const IPC_CHANNELS = {
   getCollection: 'library:get-collection',
@@ -71,6 +78,17 @@ export const IPC_CHANNELS = {
   wechat4FavoritesReady: 'wechat4:favorites-ready',
   wechat4Progress: 'wechat4:progress',
   wechat4GateStatus: 'wechat4:gate-status',
+  vxPluginGetCapability: 'vx-plugin:get-capability',
+  vxPluginRefresh: 'vx-plugin:refresh',
+  vxPluginOpenInstallPage: 'vx-plugin:open-install-page',
+  vxPluginGetDistributionAvailability: 'vx-plugin:get-distribution-availability',
+  vxPluginInstallRemote: 'vx-plugin:install-remote',
+  vxPluginChoosePackage: 'vx-plugin:choose-package',
+  vxPluginInstallProgress: 'vx-plugin:install-progress',
+  appUpdateGetState: 'app-update:get-state',
+  appUpdateCheck: 'app-update:check',
+  appUpdateOpenReleasePage: 'app-update:open-release-page',
+  appUpdateAvailable: 'app-update:available',
   reorderAssets: 'library:reorder-assets',
   removeAssets: 'library:remove-assets',
   setSelection: 'library:set-selection',
@@ -154,6 +172,15 @@ export interface StickerAppApi {
   ): Promise<ImportSummary>
   cancelWechat4Import(): Promise<boolean>
   confirmWechat4FavoritesReady(): Promise<boolean>
+  getVxPluginCapability(): Promise<VxPluginCapability>
+  refreshVxPluginCapability(): Promise<VxPluginCapability>
+  openVxPluginInstallPage(): Promise<boolean>
+  getVxPluginDistributionAvailability(): Promise<VxPluginDistributionAvailability>
+  installVxPluginFromRemote(): Promise<VxPluginInstallResult>
+  chooseVxPluginPackage(): Promise<VxPluginInstallResult>
+  getAppUpdateState(): Promise<AppUpdateState>
+  checkForAppUpdate(): Promise<AppUpdateCheckResult>
+  openAppUpdateReleasePage(): Promise<void>
   reorderAssets(orderedIds: string[]): Promise<CollectionView>
   removeAssets(assetIds: string[]): Promise<CollectionView>
   setSelection(selectedIds: string[]): Promise<CollectionView>
@@ -174,4 +201,6 @@ export interface StickerAppApi {
   onLegacyWechatProgress(listener: (progress: ImportProgress) => void): () => void
   onWechat4Progress(listener: (progress: ImportProgress) => void): () => void
   onWechat4GateStatus(listener: (status: Wechat4GateStatus) => void): () => void
+  onVxPluginInstallProgress(listener: (progress: VxPluginInstallProgress) => void): () => void
+  onAppUpdateAvailable(listener: (update: AppUpdateInfo) => void): () => void
 }

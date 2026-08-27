@@ -4,10 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import {
-  assertWechat4NativeArtifacts,
-  resolveWechat4NativeArtifacts,
-} from '../../src/main/sources/wechat4/native-runtime.js'
+import { assertWechat4NativeArtifacts } from '../../src/main/sources/wechat4/native-runtime.js'
 
 const cleanup: string[] = []
 
@@ -16,26 +13,6 @@ afterEach(async () => {
 })
 
 describe('WeChat 4 native runtime artifacts', () => {
-  it('resolves development and packaged artifacts from their explicit roots', () => {
-    expect(
-      resolveWechat4NativeArtifacts({ packaged: false, projectRoot: '/work/project' }),
-    ).toEqual({
-      helperPath: '/work/project/native/wechat4-helper/build/universal/wechat4-helper',
-      interposerPath:
-        '/work/project/native/wechat4-instrumentation/build/universal/libwechat4-synthetic-interposer.dylib',
-    })
-    expect(
-      resolveWechat4NativeArtifacts({
-        packaged: true,
-        resourcesPath: '/Applications/App/Resources',
-      }),
-    ).toEqual({
-      helperPath: '/Applications/App/Resources/wechat4-native/wechat4-helper',
-      interposerPath:
-        '/Applications/App/Resources/wechat4-native/libwechat4-emoticon-interposer.dylib',
-    })
-  })
-
   it('requires both artifacts to be regular executable files', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'wechat4-native-runtime-'))
     cleanup.push(parent)
@@ -69,28 +46,27 @@ describe('WeChat 4 native runtime artifacts', () => {
     )
   })
 
-  it('packages both universal artifacts before every macOS build', async () => {
+  it('keeps Community independent and injects native files only through the Official overlay', async () => {
     const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
       scripts: Record<string, string>
-      build: { extraResources: Array<{ from: string; to: string }> }
     }
+    const [base, community, official] = await Promise.all([
+      readFile(join(process.cwd(), 'build', 'electron-builder.base.yml'), 'utf8'),
+      readFile(join(process.cwd(), 'build', 'electron-builder.community.yml'), 'utf8'),
+      readFile(join(process.cwd(), 'build', 'electron-builder.official.yml'), 'utf8'),
+    ])
 
     expect(packageJson.scripts['phase7:native:build']).toContain('phase7:helper:build')
     expect(packageJson.scripts['phase7:native:build']).toContain('phase7:instrumentation:build')
-    for (const script of ['package:mac', 'package:mac:arm64', 'package:mac:x64']) {
-      expect(packageJson.scripts[script]).toContain('phase7:native:build')
-    }
-    expect(packageJson.build.extraResources).toEqual(
-      expect.arrayContaining([
-        {
-          from: 'native/wechat4-helper/build/universal/wechat4-helper',
-          to: 'wechat4-native/wechat4-helper',
-        },
-        {
-          from: 'native/wechat4-instrumentation/build/universal/libwechat4-synthetic-interposer.dylib',
-          to: 'wechat4-native/libwechat4-emoticon-interposer.dylib',
-        },
-      ]),
-    )
+    expect(packageJson.scripts['package:mac:community']).not.toContain('native:build')
+    expect(packageJson.scripts['package:mac:official']).toContain('vx-plugin:stage')
+    expect(base).not.toContain('vx-plugin')
+    expect(community).toContain('release/community')
+    expect(community).not.toContain('extraResources')
+    expect(official).toContain('release/official')
+    expect(official).toContain('extraResources')
+    expect(official).toContain('manifest.json')
+    expect(official).toContain('vx-helper')
+    expect(official).toContain('libvx-interposer.dylib')
   })
 })
